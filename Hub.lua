@@ -22,14 +22,15 @@ local Hub = Phantom.new({
 })
 
 -- ── Universal Tab ─────────────────────────────────────────────
-local UniTab = Hub:NewTab({ Title = "Universal" })
+local UniTab = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
 local UniSec = UniTab:NewSection({ Position = "Left", Title = "Universal Scripts" })
 
 UniSec:NewLabel("Your friend adds scripts here")
 
 -- ── Game-Specific Tabs ────────────────────────────────────────
 if GameName ~= "Unknown" then
-    local GameTab = Hub:NewTab({ Title = GameName })
+    local gameIcon = GameName == "BloxFruits" and "rbxassetid://3926307959" or "rbxassetid://3926307433"
+    local GameTab = Hub:NewTab({ Title = GameName, Icon = gameIcon })
 
     -- ── BLOX FRUITS ──────────────────────────────────────────
     if GameName == "BloxFruits" then

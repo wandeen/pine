@@ -177,7 +177,22 @@ function Phantom.new(opts)
     subLbl.ZIndex                 = 3
     subLbl.Parent                 = topBar
 
-    -- Close button
+    -- Minimize button (−)
+    local minBtn = Instance.new("TextButton")
+    minBtn.Text                   = "−"
+    minBtn.Font                   = T.Font
+    minBtn.TextSize               = 18
+    minBtn.TextColor3             = T.Muted
+    minBtn.BackgroundTransparency = 1
+    minBtn.Size                   = UDim2.new(0, 34, 1, 0)
+    minBtn.Position               = UDim2.new(1, -70, 0, 0)
+    minBtn.AutoButtonColor        = false
+    minBtn.ZIndex                 = 3
+    minBtn.Parent                 = topBar
+    minBtn.MouseEnter:Connect(function() tw(minBtn, {TextColor3 = T.Text}, 0.12) end)
+    minBtn.MouseLeave:Connect(function() tw(minBtn, {TextColor3 = T.Muted}, 0.12) end)
+
+    -- Close button (destroys GUI entirely — re-inject to reopen)
     local closeBtn = Instance.new("TextButton")
     closeBtn.Text                   = "✕"
     closeBtn.Font                   = T.Font
@@ -293,31 +308,39 @@ function Phantom.new(opts)
     end)
 
     -- ── Animations ───────────────────────────────────────────
-    -- AnchorPoint(0.5,0.5) on win means UIScale expands from center — no more drift!
     local function showAnim()
         win.Visible    = true
         shadow.Visible = true
         shadow.BackgroundTransparency = 1
-        winScale.Scale = 0.85
+        winScale.Scale = 0        -- start from nothing so it grows into view
         blur.Size      = 10
         tw(shadow,   {BackgroundTransparency = 0.6},  0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
         tw(winScale, {Scale = 1},                     0.42, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
     end
 
-    local function hideAnim()
+    local function hideAnim(onDone)
         blur.Size = 0
-        tw(shadow,   {BackgroundTransparency = 1}, 0.2,  Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tw(winScale, {Scale = 0.88},               0.2,  Enum.EasingStyle.Quart, Enum.EasingDirection.In)
-        task.delay(0.22, function()
+        tw(shadow,   {BackgroundTransparency = 1}, 0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+        tw(winScale, {Scale = 0},                  0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        task.delay(0.30, function()
             win.Visible    = false
             shadow.Visible = false
-            winScale.Scale = 0.85
+            if onDone then onDone() end
         end)
     end
 
-    closeBtn.MouseButton1Click:Connect(function()
+    -- Minimize: hide with animation, J brings it back
+    minBtn.MouseButton1Click:Connect(function()
         self.Visible = false
         hideAnim()
+    end)
+
+    -- Close: hide then destroy everything — needs re-inject to reopen
+    closeBtn.MouseButton1Click:Connect(function()
+        hideAnim(function()
+            blur:Destroy()
+            gui:Destroy()
+        end)
     end)
 
     UIS.InputBegan:Connect(function(i, gpe)
@@ -346,12 +369,9 @@ end
 function Phantom:NewTab(opts)
     self._tabN = self._tabN + 1
 
-    -- Sidebar button
+    -- Sidebar button (text="" so we control label separately for icon support)
     local btn = Instance.new("TextButton")
-    btn.Text                   = opts.Title or "Tab"
-    btn.Font                   = T.FontReg
-    btn.TextSize               = 13
-    btn.TextColor3             = T.Muted
+    btn.Text                   = ""
     btn.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
     btn.BackgroundTransparency = 1
     btn.Size                   = UDim2.new(1, 0, 0, 30)
@@ -360,6 +380,33 @@ function Phantom:NewTab(opts)
     btn.Parent                 = self._sidebar
     corner(btn, 6)
     local btnSt = stroke(btn, T.Accent, 1)
+
+    -- Optional icon
+    local btnIco = nil
+    local txtX   = 8
+    if opts.Icon then
+        btnIco = Instance.new("ImageLabel")
+        btnIco.Image                 = opts.Icon
+        btnIco.Size                  = UDim2.new(0, 14, 0, 14)
+        btnIco.Position              = UDim2.new(0, 8, 0.5, -7)
+        btnIco.BackgroundTransparency = 1
+        btnIco.ImageColor3           = T.Muted
+        btnIco.ZIndex                = 3
+        btnIco.Parent                = btn
+        txtX = 26
+    end
+
+    local btnLbl = Instance.new("TextLabel")
+    btnLbl.Text                   = opts.Title or "Tab"
+    btnLbl.Font                   = T.FontReg
+    btnLbl.TextSize               = 13
+    btnLbl.TextColor3             = T.Muted
+    btnLbl.BackgroundTransparency = 1
+    btnLbl.Size                   = UDim2.new(1, -(txtX + 4), 1, 0)
+    btnLbl.Position               = UDim2.new(0, txtX, 0, 0)
+    btnLbl.TextXAlignment         = Enum.TextXAlignment.Left
+    btnLbl.ZIndex                 = 3
+    btnLbl.Parent                 = btn
 
     -- Tab frame (holds two scroll columns)
     local tabFrame = Instance.new("Frame")
@@ -389,18 +436,26 @@ function Phantom:NewTab(opts)
     local rightCol = makeScrollCol(UDim2.new(0.5, 1, 0, 0), UDim2.new(0.5, -1, 1, 0))
 
     -- Activate logic
-    local tabData = {_frame = tabFrame, _btn = btn, _btnSt = btnSt}
+    local tabData = {_frame = tabFrame, _btn = btn, _btnSt = btnSt, _btnLbl = btnLbl, _btnIco = btnIco}
 
     local function activate()
         if self._active then
             self._active._frame.Visible = false
-            tw(self._active._btn,   {TextColor3 = T.Muted, BackgroundTransparency = 1}, 0.15)
+            tw(self._active._btn,   {BackgroundTransparency = 1}, 0.15)
             tw(self._active._btnSt, {Transparency = 1}, 0.15)
+            tw(self._active._btnLbl, {TextColor3 = T.Muted}, 0.15)
+            if self._active._btnIco then
+                tw(self._active._btnIco, {ImageColor3 = T.Muted}, 0.15)
+            end
         end
         self._active      = tabData
         tabFrame.Visible  = true
-        tw(btn,   {TextColor3 = T.Text, BackgroundTransparency = 0.86}, 0.18)
-        tw(btnSt, {Transparency = 0.7}, 0.18)
+        tw(btn,    {BackgroundTransparency = 0.86}, 0.18)
+        tw(btnSt,  {Transparency = 0.7}, 0.18)
+        tw(btnLbl, {TextColor3 = T.Text}, 0.18)
+        if btnIco then
+            tw(btnIco, {ImageColor3 = T.Text}, 0.18)
+        end
     end
 
     btn.MouseButton1Click:Connect(activate)
