@@ -14,14 +14,3 @@ jobs:
       - uses: anthropics/claude-code-action@v1
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
-```
-
-4. Click **"Commit changes"** → **"Commit directly to main"**
-
----
-
-## Step 2 — Test it
-
-Once committed, go to **Issues** or **Pull Requests** in your repo and leave a comment with:
-```
-@claude hello, can you see this repo?

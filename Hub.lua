@@ -1,11 +1,11 @@
 -- ╔══════════════════════════════════════════════════╗
--- ║              PHANTOM HUB  v1.0                   ║
--- ║   Paste the raw GitHub URL of Phantom.lua below  ║
+-- ║              PHANTOM HUB  v2.0                   ║
+-- ║         Powered by NOTHING UI Library            ║
 -- ╚══════════════════════════════════════════════════╝
 
--- Load Phantom UI Library
--- Replace the URL below with your raw GitHub link once uploaded
-local Phantom = loadstring(game:HttpGet("https://raw.githubusercontent.com/wandeen/pine/refs/heads/main/Phantom.lua"))()
+-- Load NOTHING UI Library
+local Library = loadstring(game:HttpGet("https://raw.githubusercontent.com/3345-c-a-t-s-u-s/NOTHING/main/source.lua"))()
+local Notifier = Library.Notification()
 
 -- ── Game Detection ────────────────────────────────────────────
 -- Add games here: [PlaceId] = "Name"
@@ -19,27 +19,31 @@ local PlaceId  = game.PlaceId
 local GameName = Games[PlaceId] or "Unknown"
 
 -- ── Create Window ─────────────────────────────────────────────
-local Hub = Phantom.new({
-    Title    = "Phantom",
-    Subtitle = GameName ~= "Unknown" and GameName or "hub",
-    Keybind  = Enum.KeyCode.RightShift,
+local Window = Library.new({
+    Title       = "Phantom Hub",
+    Description = GameName ~= "Unknown" and GameName or "Universal Hub",
+    Keybind     = Enum.KeyCode.RightShift,
+    Size        = UDim2.new(0.1, 445, 0.1, 315),
 })
 
--- ── Universal Tab (your friend fills this in) ─────────────────
-local UniTab = Hub:NewTab({ Title = "Universal" })
-local UniSec = UniTab:NewSection({ Title = "Universal Scripts" })
+-- ── Universal Tab ─────────────────────────────────────────────
+local UniTab = Window:NewTab({ Title = "Universal" })
+local UniSec = UniTab:NewSection({ Position = "Left", Title = "Universal Scripts" })
 
-UniSec:NewLabel("Your friend adds scripts here")
+UniSec:NewButton({
+    Title    = "Your friend adds scripts here",
+    Callback = function() end,
+})
 
 -- ── Game-Specific Tabs ────────────────────────────────────────
 if GameName ~= "Unknown" then
-    local GameTab = Hub:NewTab({ Title = GameName })
+    local GameTab = Window:NewTab({ Title = GameName })
 
     -- ── BLOX FRUITS ──────────────────────────────────────────
     if GameName == "BloxFruits" then
-        local Combat = GameTab:NewSection({ Title = "Combat" })
-        local Farm   = GameTab:NewSection({ Title = "Farm"   })
-        local Player = GameTab:NewSection({ Title = "Player" })
+        local Combat = GameTab:NewSection({ Position = "Left",  Title = "Combat" })
+        local Farm   = GameTab:NewSection({ Position = "Left",  Title = "Farm"   })
+        local Player = GameTab:NewSection({ Position = "Right", Title = "Player" })
 
         -- Kill Aura
         local killAura = false
@@ -59,10 +63,10 @@ if GameName ~= "Unknown" then
             Default  = false,
             Callback = function(v)
                 autoFarm = v
-                Hub:Notify({
-                    Title   = "Auto Farm",
-                    Message = v and "Enabled" or "Disabled",
-                    Duration = 3,
+                Notifier.new({
+                    Title       = "Auto Farm",
+                    Description = v and "Enabled" or "Disabled",
+                    Duration    = 3,
                 })
             end,
         })
@@ -106,9 +110,9 @@ if GameName ~= "Unknown" then
 
     -- ── DA HOOD ──────────────────────────────────────────────
     elseif GameName == "DaHood" then
-        local Combat = GameTab:NewSection({ Title = "Combat" })
-        local Player = GameTab:NewSection({ Title = "Player" })
-        local Visual = GameTab:NewSection({ Title = "Visuals" })
+        local Combat = GameTab:NewSection({ Position = "Left",  Title = "Combat"  })
+        local Player = GameTab:NewSection({ Position = "Right", Title = "Player"  })
+        local Visual = GameTab:NewSection({ Position = "Right", Title = "Visuals" })
 
         -- Aimbot
         Combat:NewToggle({
@@ -178,21 +182,21 @@ if GameName ~= "Unknown" then
 
     -- ── ADD MORE GAMES BELOW ─────────────────────────────────
     -- elseif GameName == "YourGame" then
-    --     local Sec = GameTab:NewSection({ Title = "Features" })
+    --     local Sec = GameTab:NewSection({ Position = "Left", Title = "Features" })
     --     Sec:NewToggle({ Title = "Feature", Callback = function(v) end })
 
     end
 else
     -- Unknown game — show PlaceId so you can add it
-    local UnkTab = Hub:NewTab({ Title = "Unknown Game" })
-    local UnkSec = UnkTab:NewSection({ Title = "Info" })
-    UnkSec:NewLabel("No scripts for this game yet.")
-    UnkSec:NewLabel("PlaceId: " .. tostring(PlaceId))
+    local UnkTab = Window:NewTab({ Title = "Unknown Game" })
+    local UnkSec = UnkTab:NewSection({ Position = "Left", Title = "Info" })
+    UnkSec:NewButton({ Title = "No scripts for this game yet.", Callback = function() end })
+    UnkSec:NewButton({ Title = "PlaceId: " .. tostring(PlaceId),  Callback = function() end })
 end
 
 -- ── Startup notification ──────────────────────────────────────
-Hub:Notify({
-    Title    = "Phantom Hub Loaded",
-    Message  = "Game: " .. GameName .. " | RightShift to toggle",
-    Duration = 5,
+Notifier.new({
+    Title       = "Phantom Hub Loaded",
+    Description = "Game: " .. GameName .. " | RightShift to toggle",
+    Duration    = 5,
 })
