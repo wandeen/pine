@@ -2,7 +2,7 @@
 -- ║              PHANTOM HUB  v2.0                   ║
 -- ╚══════════════════════════════════════════════════╝
 
-local Phantom = loadstring(game:HttpGet("https://raw.githubusercontent.com/wandeen/pine/refs/heads/main/Phantom.lua"))()
+local Phantom = loadstring(game:HttpGet("https://raw.githubusercontent.com/wandeen/pine/refs/heads/claude/fix-ui-issues-uGzBB/Phantom.lua"))()
 
 -- ── Game Detection ────────────────────────────────────────────
 local Games = {
