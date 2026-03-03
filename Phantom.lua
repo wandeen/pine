@@ -267,13 +267,30 @@ function Phantom.new(opts)
     subLbl.ZIndex                 = 3
     subLbl.Parent                 = topBar
 
-    -- ── Topbar right-side controls (right→left: X, -, Settings, Log, Search) ──
-    local minBtn   = makePillBtn(topBar, -68, "-", T.Accent, Color3.new(1,1,1), T)
-    local closeBtn = makePillBtn(topBar, -36, "X", T.Danger, Color3.new(1,1,1), T)
-    -- icon buttons to the left of "-"
+    -- ── Topbar right-side controls (right→left: X, -, Settings, Log) ──
+    local minBtn         = makePillBtn(topBar, -68, "-", T.Accent, Color3.new(1,1,1), T)
+    local closeBtn       = makePillBtn(topBar, -36, "X", T.Danger, Color3.new(1,1,1), T)
     local settingsTopBtn = makeIconBtn(topBar, -102, "⚙", T)
     local logTopBtn      = makeIconBtn(topBar, -134, "≡", T)
-    local searchTopBtn   = makeIconBtn(topBar, -166, "⌕", T)
+
+    -- Inline search bar (always visible in topbar, replaces old ⌕ icon button)
+    local searchInline = Instance.new("TextBox")
+    searchInline.PlaceholderText   = "⌕  Search..."
+    searchInline.Text              = ""
+    searchInline.Font              = T.FontReg
+    searchInline.TextSize          = 11
+    searchInline.TextColor3        = T.Text
+    searchInline.PlaceholderColor3 = T.Muted
+    searchInline.BackgroundColor3  = T.BG3
+    searchInline.BorderSizePixel   = 0
+    searchInline.ClearTextOnFocus  = false
+    searchInline.Size              = UDim2.new(0, 130, 0, 24)
+    searchInline.Position          = UDim2.new(1, -278, 0.5, -12)
+    searchInline.ZIndex            = 3
+    searchInline.Parent            = topBar
+    corner(searchInline, 5)
+    padding(searchInline, 0, 6, 0, 8)
+    stroke(searchInline, T.Accent, 0.75)
 
     -- ── Sidebar ───────────────────────────────────────────────
     local sidebar = Instance.new("Frame")
@@ -666,6 +683,7 @@ function Phantom.new(opts)
                 row.MouseButton1Click:Connect(function()
                     searchPanel.Visible = false
                     searchBox.Text      = ""
+                    searchInline.Text   = ""
                     if capEntry.activate then capEntry.activate() end
                 end)
             end
@@ -675,11 +693,20 @@ function Phantom.new(opts)
     searchBox:GetPropertyChangedSignal("Text"):Connect(function()
         rebuildSearch(searchBox.Text)
     end)
+
+    -- Inline search bar drives the search panel
+    searchInline:GetPropertyChangedSignal("Text"):Connect(function()
+        local q = searchInline.Text
+        searchPanel.Visible = q ~= ""
+        rebuildSearch(q)
+    end)
+
     UIS.InputBegan:Connect(function(i, gpe)
         if gpe then return end
         if i.KeyCode == Enum.KeyCode.Escape and searchPanel.Visible then
             searchPanel.Visible = false
             searchBox.Text      = ""
+            searchInline.Text   = ""
         end
     end)
 
@@ -690,20 +717,14 @@ function Phantom.new(opts)
     settingsTopBtn.MouseButton1Click:Connect(function()
         notifPanel.Visible  = false
         searchPanel.Visible = false
+        searchInline.Text   = ""
         if self._tabs[1] then self._tabs[1]._activate() end
     end)
 
     logTopBtn.MouseButton1Click:Connect(function()
         searchPanel.Visible = false
+        searchInline.Text   = ""
         notifPanel.Visible  = not notifPanel.Visible
-    end)
-
-    searchTopBtn.MouseButton1Click:Connect(function()
-        notifPanel.Visible  = false
-        searchPanel.Visible = not searchPanel.Visible
-        if searchPanel.Visible then
-            task.defer(function() searchBox:CaptureFocus() end)
-        end
     end)
 
     -- ── Animations ────────────────────────────────────────────
