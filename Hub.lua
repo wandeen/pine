@@ -96,11 +96,126 @@ KbSec:NewKeybind({
 
 Hub:AutoSave("phantom", 60)  -- start default auto-save
 
--- ── Universal Tab ─────────────────────────────────────────────
-local UniTab = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
-local UniSec = UniTab:NewSection({ Position = "Left", Title = "Universal Scripts" })
+-- Hide Settings tab from the sidebar (still reachable via the ⚙ topbar button)
+SetTab._btn.Visible = false
 
-UniSec:NewLabel("Your friend adds scripts here")
+-- ── Universal Tab ─────────────────────────────────────────────
+local UniTab     = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
+local UniPlayer  = UniTab:NewSection({ Position = "Left",  Title = "Player"  })
+local UniMove    = UniTab:NewSection({ Position = "Left",  Title = "Movement" })
+local UniUtil    = UniTab:NewSection({ Position = "Right", Title = "Utility"  })
+local UniVisual  = UniTab:NewSection({ Position = "Right", Title = "Visual"   })
+
+-- ── Player: Walk Speed ────────────────────────────────────────
+local function applySpeed(v)
+    local char = game.Players.LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.WalkSpeed = v
+    end
+end
+UniPlayer:NewSlider({
+    Title    = "Walk Speed",
+    Min      = 16,
+    Max      = 500,
+    Default  = 16,
+    Callback = applySpeed,
+})
+
+-- ── Player: Jump Power ────────────────────────────────────────
+local function applyJump(v)
+    local char = game.Players.LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") then
+        char.Humanoid.JumpPower = v
+    end
+end
+UniPlayer:NewSlider({
+    Title    = "Jump Power",
+    Min      = 7,
+    Max      = 300,
+    Default  = 7,
+    Callback = applyJump,
+})
+
+-- ── Movement: Infinite Jump ───────────────────────────────────
+local _infJumpConn
+UniMove:NewToggle({
+    Title    = "Infinite Jump",
+    Default  = false,
+    Callback = function(v)
+        if _infJumpConn then _infJumpConn:Disconnect(); _infJumpConn = nil end
+        if v then
+            _infJumpConn = game:GetService("UserInputService").JumpRequest:Connect(function()
+                local char = game.Players.LocalPlayer.Character
+                if char then
+                    local hum = char:FindFirstChild("Humanoid")
+                    if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                end
+            end)
+        end
+    end,
+})
+
+-- ── Movement: No Clip ─────────────────────────────────────────
+local _noclipConn
+UniMove:NewToggle({
+    Title    = "No Clip",
+    Default  = false,
+    Callback = function(v)
+        if _noclipConn then _noclipConn:Disconnect(); _noclipConn = nil end
+        if v then
+            _noclipConn = game:GetService("RunService").Stepped:Connect(function()
+                local char = game.Players.LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end
+    end,
+})
+
+-- ── Utility: Anti-AFK ────────────────────────────────────────
+local _afkConn
+UniUtil:NewToggle({
+    Title    = "Anti-AFK",
+    Default  = false,
+    Callback = function(v)
+        if _afkConn then _afkConn:Disconnect(); _afkConn = nil end
+        if v then
+            local VU = game:GetService("VirtualUser")
+            _afkConn = game.Players.LocalPlayer.Idled:Connect(function()
+                VU:Button2Down(Vector2.new(0, 0), CFrame.new())
+                task.wait()
+                VU:Button2Up(Vector2.new(0, 0), CFrame.new())
+            end)
+        end
+    end,
+})
+
+-- ── Visual: Fullbright ────────────────────────────────────────
+local _origBrightness, _origAmbient, _origOutdoor
+UniVisual:NewToggle({
+    Title    = "Fullbright",
+    Default  = false,
+    Callback = function(v)
+        local L = game:GetService("Lighting")
+        if v then
+            _origBrightness = L.Brightness
+            _origAmbient    = L.Ambient
+            _origOutdoor    = L.OutdoorAmbient
+            L.Brightness     = 2
+            L.Ambient        = Color3.fromRGB(178, 178, 178)
+            L.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+        else
+            L.Brightness     = _origBrightness or 1
+            L.Ambient        = _origAmbient    or Color3.fromRGB(127, 127, 127)
+            L.OutdoorAmbient = _origOutdoor    or Color3.fromRGB(127, 127, 127)
+        end
+    end,
+})
 
 -- ── Game-Specific Tabs ────────────────────────────────────────
 if GameName ~= "Unknown" then
