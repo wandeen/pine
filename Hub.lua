@@ -23,6 +23,79 @@ local Hub = Phantom.new({
 
 Hub:SetProfile()
 
+-- ── Settings Tab (always first so it sits at the top of the sidebar) ──
+local SetTab    = Hub:NewTab({ Title = "Settings", Icon = "rbxassetid://3926307641" })
+local AppearSec = SetTab:NewSection({ Position = "Left",  Title = "Appearance" })
+local DataSec   = SetTab:NewSection({ Position = "Right", Title = "Config"     })
+local KbSec     = SetTab:NewSection({ Position = "Right", Title = "Keybind"    })
+
+-- Accent colour
+AppearSec:NewColorPicker({
+    Title    = "Accent Color",
+    Default  = Color3.fromRGB(110, 75, 255),
+    Callback = function(c) Hub:SetAccent(c) end,
+})
+
+-- Window opacity
+AppearSec:NewSlider({
+    Title    = "Window Opacity %",
+    Min      = 30,
+    Max      = 100,
+    Default  = 85,
+    Callback = function(v)
+        Hub._win.BackgroundTransparency = 1 - (v / 100)
+    end,
+})
+
+-- Config
+DataSec:NewButton({
+    Title    = "Save Config",
+    Callback = function()
+        Hub:SaveConfig("phantom")
+        Hub:Notify({ Title = "Config", Message = "Saved", Duration = 2 })
+    end,
+})
+DataSec:NewButton({
+    Title    = "Load Config",
+    Callback = function()
+        Hub:LoadConfig("phantom")
+        Hub:Notify({ Title = "Config", Message = "Loaded", Duration = 2 })
+    end,
+})
+DataSec:NewToggle({
+    Title    = "Auto Save",
+    Default  = true,
+    Callback = function(v)
+        if v then
+            Hub:AutoSave("phantom", Hub._autoSaveInterval or 60)
+        else
+            if Hub._autoSaveThread then
+                task.cancel(Hub._autoSaveThread)
+                Hub._autoSaveThread = nil
+            end
+        end
+    end,
+})
+DataSec:NewSlider({
+    Title    = "Auto Save (seconds)",
+    Min      = 15,
+    Max      = 300,
+    Default  = 60,
+    Callback = function(v)
+        Hub._autoSaveInterval = v
+        Hub:AutoSave("phantom", v)
+    end,
+})
+
+-- Keybind
+KbSec:NewKeybind({
+    Title    = "Toggle Keybind",
+    Default  = Enum.KeyCode.J,
+    Callback = function(key) Hub.Keybind = key end,
+})
+
+Hub:AutoSave("phantom", 60)  -- start default auto-save
+
 -- ── Universal Tab ─────────────────────────────────────────────
 local UniTab = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
 local UniSec = UniTab:NewSection({ Position = "Left", Title = "Universal Scripts" })
@@ -170,59 +243,6 @@ else
     UnkSec:NewLabel("No scripts for this game yet.")
     UnkSec:NewLabel("PlaceId: " .. tostring(PlaceId))
 end
-
--- ── Settings Tab ──────────────────────────────────────────────
-local SetTab    = Hub:NewTab({ Title = "Settings", Icon = "rbxassetid://3926307641" })
-local AppearSec = SetTab:NewSection({ Position = "Left",  Title = "Appearance" })
-local DataSec   = SetTab:NewSection({ Position = "Right", Title = "Config" })
-local KbSec     = SetTab:NewSection({ Position = "Right", Title = "Keybind" })
-
--- Accent colour picker
-AppearSec:NewColorPicker({
-    Title    = "Accent Color",
-    Default  = Color3.fromRGB(110, 75, 255),
-    Callback = function(c)
-        Phantom.Theme.Accent = c
-    end,
-})
-
--- Window transparency
-AppearSec:NewSlider({
-    Title    = "Window Opacity %",
-    Min      = 30,
-    Max      = 100,
-    Default  = 85,
-    Callback = function(v)
-        Hub._win.BackgroundTransparency = 1 - (v / 100)
-    end,
-})
-
--- Config
-DataSec:NewButton({
-    Title    = "Save Config",
-    Callback = function()
-        Hub:SaveConfig("phantom")
-        Hub:Notify({ Title = "Config", Message = "Saved successfully", Duration = 2 })
-    end,
-})
-DataSec:NewButton({
-    Title    = "Load Config",
-    Callback = function()
-        Hub:LoadConfig("phantom")
-        Hub:Notify({ Title = "Config", Message = "Loaded successfully", Duration = 2 })
-    end,
-})
-DataSec:NewLabel("Auto-saves every 60s")
-Hub:AutoSave("phantom", 60)
-
--- Keybind
-KbSec:NewKeybind({
-    Title    = "Toggle Keybind",
-    Default  = Enum.KeyCode.J,
-    Callback = function(key)
-        Hub.Keybind = key
-    end,
-})
 
 -- ── Startup Notification ──────────────────────────────────────
 Hub:Notify({
