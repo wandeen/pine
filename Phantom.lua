@@ -119,6 +119,47 @@ local function makePillBtn(parent, posX, symbol, hoverBg, hoverText, T)
     return btn
 end
 
+-- small icon-text button for the top bar (left of -/X controls)
+local function makeIconBtn(parent, posX, glyph, T)
+    local pill = Instance.new("Frame")
+    pill.Size                   = UDim2.new(0, 26, 0, 26)
+    pill.Position               = UDim2.new(1, posX, 0.5, -13)
+    pill.BackgroundColor3       = T.Accent
+    pill.BackgroundTransparency = 1
+    pill.BorderSizePixel        = 0
+    pill.ZIndex                 = 3
+    pill.Parent                 = parent
+    corner(pill, 6)
+
+    local lbl = Instance.new("TextLabel")
+    lbl.Text                   = glyph
+    lbl.Font                   = Enum.Font.Code      -- wider Unicode coverage
+    lbl.TextSize               = 14
+    lbl.TextColor3             = T.Muted
+    lbl.BackgroundTransparency = 1
+    lbl.Size                   = UDim2.new(1, 0, 1, 0)
+    lbl.ZIndex                 = 4
+    lbl.Parent                 = pill
+
+    local btn = Instance.new("TextButton")
+    btn.Text                   = ""
+    btn.BackgroundTransparency = 1
+    btn.Size                   = UDim2.new(1, 0, 1, 0)
+    btn.AutoButtonColor        = false
+    btn.ZIndex                 = 5
+    btn.Parent                 = pill
+
+    btn.MouseEnter:Connect(function()
+        tw(pill, {BackgroundTransparency = 0.15}, 0.12)
+        tw(lbl,  {TextColor3 = T.Text},            0.12)
+    end)
+    btn.MouseLeave:Connect(function()
+        tw(pill, {BackgroundTransparency = 1},  0.12)
+        tw(lbl,  {TextColor3 = T.Muted},         0.12)
+    end)
+    return btn, lbl
+end
+
 -- ── Window ────────────────────────────────────────────────────
 function Phantom.new(opts)
     local self   = setmetatable({}, Phantom)
@@ -137,6 +178,8 @@ function Phantom.new(opts)
     self._notifs      = {}   -- active notification entries {_frame}
     self._cfgState    = {}   -- config: key → current value
     self._cfgSetters  = {}   -- config: key → function(value)
+    self._notifLog    = {}   -- {title, message, time} history
+    self._searchIndex = {}   -- {tab, section, title, activate} for search
 
     -- ScreenGui
     local gui = Instance.new("ScreenGui")
@@ -224,8 +267,13 @@ function Phantom.new(opts)
     subLbl.ZIndex                 = 3
     subLbl.Parent                 = topBar
 
+    -- ── Topbar right-side controls (right→left: X, -, Settings, Log, Search) ──
     local minBtn   = makePillBtn(topBar, -68, "-", T.Accent, Color3.new(1,1,1), T)
     local closeBtn = makePillBtn(topBar, -36, "X", T.Danger, Color3.new(1,1,1), T)
+    -- icon buttons to the left of "-"
+    local settingsTopBtn = makeIconBtn(topBar, -102, "⚙", T)
+    local logTopBtn      = makeIconBtn(topBar, -134, "≡", T)
+    local searchTopBtn   = makeIconBtn(topBar, -166, "⌕", T)
 
     -- ── Sidebar ───────────────────────────────────────────────
     local sidebar = Instance.new("Frame")
@@ -376,6 +424,289 @@ function Phantom.new(opts)
     end)
 
     -- ── Animations ────────────────────────────────────────────
+    -- ── Overlay factory ──────────────────────────────────────
+    local function makeOverlayPanel(zIdx)
+        local ov = Instance.new("Frame")
+        ov.Size                   = UDim2.new(1, -(SIDE + 1), 1, -(TOPBAR + FOOTER))
+        ov.Position               = UDim2.new(0, SIDE + 1, 0, TOPBAR)
+        ov.BackgroundColor3       = T.BG
+        ov.BackgroundTransparency = 0.04
+        ov.BorderSizePixel        = 0
+        ov.ZIndex                 = zIdx
+        ov.Visible                = false
+        ov.ClipsDescendants       = true
+        ov.Parent                 = win
+        corner(ov, 8)
+        return ov
+    end
+
+    -- ── Notification Log Overlay ─────────────────────────────
+    local notifPanel = makeOverlayPanel(20)
+
+    local notifHeader = Instance.new("Frame")
+    notifHeader.Size             = UDim2.new(1, 0, 0, 36)
+    notifHeader.BackgroundColor3 = T.BG2
+    notifHeader.BorderSizePixel  = 0
+    notifHeader.ZIndex           = 21
+    notifHeader.Parent           = notifPanel
+    corner(notifHeader, 8)
+    local notifHeaderFix = Instance.new("Frame")  -- square off bottom corners
+    notifHeaderFix.Size             = UDim2.new(1, 0, 0, 10)
+    notifHeaderFix.Position         = UDim2.new(0, 0, 1, -10)
+    notifHeaderFix.BackgroundColor3 = T.BG2
+    notifHeaderFix.BorderSizePixel  = 0
+    notifHeaderFix.ZIndex           = 21
+    notifHeaderFix.Parent           = notifHeader
+
+    local notifTitle = Instance.new("TextLabel")
+    notifTitle.Text                   = "Notification Log"
+    notifTitle.Font                   = T.Font
+    notifTitle.TextSize               = 13
+    notifTitle.TextColor3             = T.Text
+    notifTitle.BackgroundTransparency = 1
+    notifTitle.Size                   = UDim2.new(1, -50, 1, 0)
+    notifTitle.Position               = UDim2.new(0, 14, 0, 0)
+    notifTitle.TextXAlignment         = Enum.TextXAlignment.Left
+    notifTitle.ZIndex                 = 22
+    notifTitle.Parent                 = notifHeader
+
+    local notifClear = Instance.new("TextButton")
+    notifClear.Text                   = "Clear"
+    notifClear.Font                   = T.FontReg
+    notifClear.TextSize               = 11
+    notifClear.TextColor3             = T.Muted
+    notifClear.BackgroundTransparency = 1
+    notifClear.Size                   = UDim2.new(0, 40, 1, 0)
+    notifClear.Position               = UDim2.new(1, -44, 0, 0)
+    notifClear.ZIndex                 = 22
+    notifClear.Parent                 = notifHeader
+
+    local notifScroll = Instance.new("ScrollingFrame")
+    notifScroll.Size                  = UDim2.new(1, 0, 1, -36)
+    notifScroll.Position              = UDim2.new(0, 0, 0, 36)
+    notifScroll.BackgroundTransparency= 1
+    notifScroll.BorderSizePixel       = 0
+    notifScroll.ScrollBarThickness    = 2
+    notifScroll.ScrollBarImageColor3  = T.Accent
+    notifScroll.CanvasSize            = UDim2.new(0, 0, 0, 0)
+    notifScroll.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+    notifScroll.ZIndex                = 21
+    notifScroll.Parent                = notifPanel
+    listLayout(notifScroll, 0)
+    padding(notifScroll, 6, 8, 6, 8)
+
+    local function addNotifLogEntry(title, message, timestamp)
+        local entry = Instance.new("Frame")
+        entry.Size             = UDim2.new(1, 0, 0, 46)
+        entry.BackgroundColor3 = T.BG3
+        entry.BorderSizePixel  = 0
+        entry.ZIndex           = 22
+        entry.Parent           = notifScroll
+        corner(entry, 6)
+
+        local dot3 = Instance.new("Frame")
+        dot3.Size             = UDim2.new(0, 6, 0, 6)
+        dot3.Position         = UDim2.new(0, 10, 0, 10)
+        dot3.BackgroundColor3 = T.Accent
+        dot3.BorderSizePixel  = 0
+        dot3.ZIndex           = 23
+        dot3.Parent           = entry
+        corner(dot3, 3)
+
+        local eTitLbl = Instance.new("TextLabel")
+        eTitLbl.Text                   = title or "Notice"
+        eTitLbl.Font                   = T.Font
+        eTitLbl.TextSize               = 11
+        eTitLbl.TextColor3             = T.Text
+        eTitLbl.BackgroundTransparency = 1
+        eTitLbl.Size                   = UDim2.new(1, -60, 0, 14)
+        eTitLbl.Position               = UDim2.new(0, 22, 0, 6)
+        eTitLbl.TextXAlignment         = Enum.TextXAlignment.Left
+        eTitLbl.TextTruncate           = Enum.TextTruncate.AtEnd
+        eTitLbl.ZIndex                 = 23
+        eTitLbl.Parent                 = entry
+
+        local eTimeLbl = Instance.new("TextLabel")
+        eTimeLbl.Text                   = os.date("%H:%M:%S", timestamp)
+        eTimeLbl.Font                   = T.FontReg
+        eTimeLbl.TextSize               = 9
+        eTimeLbl.TextColor3             = T.Muted
+        eTimeLbl.BackgroundTransparency = 1
+        eTimeLbl.Size                   = UDim2.new(0, 54, 0, 14)
+        eTimeLbl.Position               = UDim2.new(1, -56, 0, 6)
+        eTimeLbl.TextXAlignment         = Enum.TextXAlignment.Right
+        eTimeLbl.ZIndex                 = 23
+        eTimeLbl.Parent                 = entry
+
+        local eMsgLbl = Instance.new("TextLabel")
+        eMsgLbl.Text                   = message or ""
+        eMsgLbl.Font                   = T.FontReg
+        eMsgLbl.TextSize               = 10
+        eMsgLbl.TextColor3             = T.Muted
+        eMsgLbl.BackgroundTransparency = 1
+        eMsgLbl.Size                   = UDim2.new(1, -26, 0, 16)
+        eMsgLbl.Position               = UDim2.new(0, 22, 0, 22)
+        eMsgLbl.TextXAlignment         = Enum.TextXAlignment.Left
+        eMsgLbl.TextTruncate           = Enum.TextTruncate.AtEnd
+        eMsgLbl.ZIndex                 = 23
+        eMsgLbl.Parent                 = entry
+    end
+
+    notifClear.MouseButton1Click:Connect(function()
+        for _, ch in ipairs(notifScroll:GetChildren()) do
+            if ch:IsA("Frame") then ch:Destroy() end
+        end
+        self._notifLog = {}
+    end)
+
+    -- ── Search Overlay ────────────────────────────────────────
+    local searchPanel = makeOverlayPanel(20)
+
+    local searchBar = Instance.new("Frame")
+    searchBar.Size             = UDim2.new(1, 0, 0, 40)
+    searchBar.BackgroundColor3 = T.BG2
+    searchBar.BorderSizePixel  = 0
+    searchBar.ZIndex           = 21
+    searchBar.Parent           = searchPanel
+    corner(searchBar, 8)
+    local searchBarFix = Instance.new("Frame")
+    searchBarFix.Size             = UDim2.new(1, 0, 0, 10)
+    searchBarFix.Position         = UDim2.new(0, 0, 1, -10)
+    searchBarFix.BackgroundColor3 = T.BG2
+    searchBarFix.BorderSizePixel  = 0
+    searchBarFix.ZIndex           = 21
+    searchBarFix.Parent           = searchBar
+
+    local searchBox = Instance.new("TextBox")
+    searchBox.PlaceholderText     = "Search elements..."
+    searchBox.Text                = ""
+    searchBox.Font                = T.FontReg
+    searchBox.TextSize            = 13
+    searchBox.TextColor3          = T.Text
+    searchBox.PlaceholderColor3   = T.Muted
+    searchBox.BackgroundColor3    = T.BG3
+    searchBox.BorderSizePixel     = 0
+    searchBox.ClearTextOnFocus    = false
+    searchBox.Size                = UDim2.new(1, -20, 0, 26)
+    searchBox.Position            = UDim2.new(0, 10, 0.5, -13)
+    searchBox.ZIndex              = 22
+    searchBox.Parent              = searchBar
+    corner(searchBox, 6)
+    padding(searchBox, 0, 8, 0, 8)
+    stroke(searchBox, T.Accent, 0.65)
+
+    local searchResults = Instance.new("ScrollingFrame")
+    searchResults.Size                  = UDim2.new(1, 0, 1, -40)
+    searchResults.Position              = UDim2.new(0, 0, 0, 40)
+    searchResults.BackgroundTransparency= 1
+    searchResults.BorderSizePixel       = 0
+    searchResults.ScrollBarThickness    = 2
+    searchResults.ScrollBarImageColor3  = T.Accent
+    searchResults.CanvasSize            = UDim2.new(0, 0, 0, 0)
+    searchResults.AutomaticCanvasSize   = Enum.AutomaticSize.Y
+    searchResults.ZIndex                = 21
+    searchResults.Parent                = searchPanel
+    listLayout(searchResults, 2)
+    padding(searchResults, 6, 8, 6, 8)
+
+    local function rebuildSearch(query)
+        for _, ch in ipairs(searchResults:GetChildren()) do
+            if ch:IsA("TextButton") or ch:IsA("Frame") then ch:Destroy() end
+        end
+        if query == "" then return end
+        local q = query:lower()
+        local shown = 0
+        for _, entry in ipairs(self._searchIndex) do
+            if shown >= 40 then break end
+            local matchTitle = entry.title:lower():find(q, 1, true)
+            local matchSec   = entry.section:lower():find(q, 1, true)
+            local matchTab   = entry.tab:lower():find(q, 1, true)
+            if matchTitle or matchSec or matchTab then
+                shown = shown + 1
+                local row = Instance.new("TextButton")
+                row.Text                   = ""
+                row.BackgroundColor3       = T.BG3
+                row.BackgroundTransparency = 0
+                row.BorderSizePixel        = 0
+                row.Size                   = UDim2.new(1, 0, 0, 38)
+                row.AutoButtonColor        = false
+                row.ZIndex                 = 22
+                row.Parent                 = searchResults
+                corner(row, 6)
+
+                local rowTab = Instance.new("TextLabel")
+                rowTab.Text                   = entry.tab .. "  ›  " .. entry.section
+                rowTab.Font                   = T.FontReg
+                rowTab.TextSize               = 9
+                rowTab.TextColor3             = T.Accent
+                rowTab.BackgroundTransparency = 1
+                rowTab.Size                   = UDim2.new(1, -14, 0, 12)
+                rowTab.Position               = UDim2.new(0, 10, 0, 5)
+                rowTab.TextXAlignment         = Enum.TextXAlignment.Left
+                rowTab.TextTruncate           = Enum.TextTruncate.AtEnd
+                rowTab.ZIndex                 = 23
+                rowTab.Parent                 = row
+
+                local rowTitle = Instance.new("TextLabel")
+                rowTitle.Text                   = entry.title
+                rowTitle.Font                   = T.Font
+                rowTitle.TextSize               = 12
+                rowTitle.TextColor3             = T.Text
+                rowTitle.BackgroundTransparency = 1
+                rowTitle.Size                   = UDim2.new(1, -14, 0, 15)
+                rowTitle.Position               = UDim2.new(0, 10, 0, 18)
+                rowTitle.TextXAlignment         = Enum.TextXAlignment.Left
+                rowTitle.TextTruncate           = Enum.TextTruncate.AtEnd
+                rowTitle.ZIndex                 = 23
+                rowTitle.Parent                 = row
+
+                row.MouseEnter:Connect(function() tw(row, {BackgroundTransparency = 0.72}, 0.1) end)
+                row.MouseLeave:Connect(function() tw(row, {BackgroundTransparency = 0},   0.1) end)
+                local capEntry = entry
+                row.MouseButton1Click:Connect(function()
+                    searchPanel.Visible = false
+                    searchBox.Text      = ""
+                    if capEntry.activate then capEntry.activate() end
+                end)
+            end
+        end
+    end
+
+    searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+        rebuildSearch(searchBox.Text)
+    end)
+    UIS.InputBegan:Connect(function(i, gpe)
+        if gpe then return end
+        if i.KeyCode == Enum.KeyCode.Escape and searchPanel.Visible then
+            searchPanel.Visible = false
+            searchBox.Text      = ""
+        end
+    end)
+
+    -- expose addNotifLogEntry so Phantom:Notify() can call it
+    self._addNotifEntry = addNotifLogEntry
+
+    -- ── Topbar icon button actions ────────────────────────────
+    settingsTopBtn.MouseButton1Click:Connect(function()
+        notifPanel.Visible  = false
+        searchPanel.Visible = false
+        if self._tabs[1] then self._tabs[1]._activate() end
+    end)
+
+    logTopBtn.MouseButton1Click:Connect(function()
+        searchPanel.Visible = false
+        notifPanel.Visible  = not notifPanel.Visible
+    end)
+
+    searchTopBtn.MouseButton1Click:Connect(function()
+        notifPanel.Visible  = false
+        searchPanel.Visible = not searchPanel.Visible
+        if searchPanel.Visible then
+            task.defer(function() searchBox:CaptureFocus() end)
+        end
+    end)
+
+    -- ── Animations ────────────────────────────────────────────
     local function showAnim()
         win.Visible    = true
         winScale.Scale = 0
@@ -408,13 +739,15 @@ function Phantom.new(opts)
 
     showAnim()
 
-    self._gui     = gui
-    self._win     = win
-    self._winScale= winScale
-    self._blur    = blur
-    self._sidebar = sidebar
-    self._content = content
-    self._T       = T       -- store local theme copy for use in methods
+    self._gui        = gui
+    self._win        = win
+    self._winScale   = winScale
+    self._blur       = blur
+    self._sidebar    = sidebar
+    self._content    = content
+    self._T          = T       -- store local theme copy for use in methods
+    self._notifPanel = notifPanel
+    self._searchPanel= searchPanel
 
     return self
 end
@@ -592,6 +925,18 @@ end
 function Phantom:Notify(nopts)
     local T = self._T
 
+    -- Log to history (cap at 100 entries)
+    local logEntry = {title = nopts.Title or "Notice", message = nopts.Message or "", time = os.time()}
+    table.insert(self._notifLog, 1, logEntry)
+    if #self._notifLog > 100 then table.remove(self._notifLog) end
+    -- Add entry to log panel if it exists
+    if self._notifPanel then
+        local sc = self._notifPanel:FindFirstChild("ScrollingFrame", true)
+        if sc then
+            self._addNotifEntry(logEntry.title, logEntry.message, logEntry.time)
+        end
+    end
+
     local notif = Instance.new("Frame")
     notif.Size                   = UDim2.new(0, NOTIF_W, 0, NOTIF_H)
     notif.Position               = UDim2.new(1, NOTIF_X, 1, 10)  -- start hidden below
@@ -732,7 +1077,7 @@ function Phantom:NewTab(opts)
     local leftCol  = makeScrollCol(UDim2.new(0, 0, 0, 0),  UDim2.new(0.5, -1, 1, 0))
     local rightCol = makeScrollCol(UDim2.new(0.5, 1, 0, 0), UDim2.new(0.5, -1, 1, 0))
 
-    local tabData = {_frame = tabFrame, _btn = btn, _btnSt = btnSt, _btnLbl = btnLbl, _btnIco = btnIco}
+    local tabData = {_frame = tabFrame, _btn = btn, _btnSt = btnSt, _btnLbl = btnLbl, _btnIco = btnIco, _activate = nil}
 
     local function activate()
         if self._active then
@@ -750,6 +1095,7 @@ function Phantom:NewTab(opts)
         if btnIco then tw(btnIco, {ImageColor3 = T.Text}, 0.18) end
     end
 
+    tabData._activate = activate          -- expose so topbar settings btn can call it
     btn.MouseButton1Click:Connect(activate)
     if #self._tabs == 0 then task.defer(activate) end
     table.insert(self._tabs, tabData)
@@ -807,8 +1153,19 @@ function Phantom:NewTab(opts)
             return key
         end
 
+        -- Helper: register element in search index
+        local function searchReg(title)
+            table.insert(hub._searchIndex, {
+                tab      = tabTitle,
+                section  = secTitle,
+                title    = title or "Element",
+                activate = activate,
+            })
+        end
+
         -- Toggle ────────────────────────────────────────────────
         function Sec:NewToggle(topts)
+            searchReg(topts.Title or "Toggle")
             local row = Instance.new("Frame")
             row.Size                   = UDim2.new(1, 0, 0, 30)
             row.BackgroundTransparency = 1
@@ -867,6 +1224,7 @@ function Phantom:NewTab(opts)
 
         -- Slider ────────────────────────────────────────────────
         function Sec:NewSlider(sopts2)
+            searchReg(sopts2.Title or "Slider")
             local wrap = Instance.new("Frame")
             wrap.Size                   = UDim2.new(1, 0, 0, 46)
             wrap.BackgroundTransparency = 1
@@ -946,6 +1304,7 @@ function Phantom:NewTab(opts)
 
         -- Button ────────────────────────────────────────────────
         function Sec:NewButton(bopts)
+            searchReg(bopts.Title or "Button")
             local b = Instance.new("TextButton")
             b.Text             = bopts.Title or "Button"
             b.Font             = T.FontReg
@@ -998,6 +1357,7 @@ function Phantom:NewTab(opts)
         -- Popup is parented to the ScreenGui so it renders above everything
         -- and is not clipped by the ScrollingFrame.
         function Sec:NewDropdown(dopts)
+            searchReg(dopts.Title or "Dropdown")
             local wrap = Instance.new("Frame")
             wrap.Size                   = UDim2.new(1, 0, 0, 52)
             wrap.BackgroundTransparency = 1
@@ -1133,6 +1493,7 @@ function Phantom:NewTab(opts)
 
         -- TextInput ─────────────────────────────────────────────
         function Sec:NewInput(iopts)
+            searchReg(iopts.Title or "Input")
             local wrap = Instance.new("Frame")
             wrap.Size                   = UDim2.new(1, 0, 0, 52)
             wrap.BackgroundTransparency = 1
@@ -1180,6 +1541,7 @@ function Phantom:NewTab(opts)
 
         -- Keybind ───────────────────────────────────────────────
         function Sec:NewKeybind(kopts)
+            searchReg(kopts.Title or "Keybind")
             local row = Instance.new("Frame")
             row.Size                   = UDim2.new(1, 0, 0, 30)
             row.BackgroundTransparency = 1
@@ -1241,6 +1603,7 @@ function Phantom:NewTab(opts)
         -- SV square (saturation on X, value on Y) + vertical hue strip.
         -- Requires UIGradient support (available in all modern executors).
         function Sec:NewColorPicker(copts)
+            searchReg(copts.Title or "ColorPicker")
             local wrap = Instance.new("Frame")
             wrap.Size                   = UDim2.new(1, 0, 0, 104)
             wrap.BackgroundTransparency = 1
