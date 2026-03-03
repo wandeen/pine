@@ -21,6 +21,8 @@ local Hub = Phantom.new({
     Keybind  = Enum.KeyCode.J,
 })
 
+Hub:SetProfile()
+
 -- ── Universal Tab ─────────────────────────────────────────────
 local UniTab = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
 local UniSec = UniTab:NewSection({ Position = "Left", Title = "Universal Scripts" })

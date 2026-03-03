@@ -152,17 +152,7 @@ function Phantom.new(opts)
     blur.Size   = 0
     blur.Parent = game:GetService("Lighting")
 
-    -- Drop shadow — kept very subtle so it doesn't create a visible dark border ring
-    local shadow = Instance.new("Frame")
-    shadow.AnchorPoint            = Vector2.new(0.5, 0.5)
-    shadow.Size                   = UDim2.new(0, W + 4, 0, H + 10)
-    shadow.Position               = UDim2.new(0.5, 0, 0.5, 6)
-    shadow.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
-    shadow.BackgroundTransparency = 1
-    shadow.BorderSizePixel        = 0
-    shadow.ZIndex                 = 0
-    shadow.Parent                 = gui
-    corner(shadow, 14)
+    -- No drop shadow (caused black border artifacts)
 
     -- Main window
     local win = Instance.new("Frame")
@@ -323,8 +313,7 @@ function Phantom.new(opts)
     UIS.InputChanged:Connect(function(i)
         if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
             local d = i.Position - dStart
-            win.Position    = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y)
-            shadow.Position = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y + 8)
+            win.Position = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y)
         end
     end)
     UIS.InputEnded:Connect(function(i)
@@ -334,21 +323,16 @@ function Phantom.new(opts)
     -- ── Animations ────────────────────────────────────────────
     local function showAnim()
         win.Visible    = true
-        shadow.Visible = true
-        shadow.BackgroundTransparency = 1
         winScale.Scale = 0
         blur.Size      = 10
-        tw(shadow,   {BackgroundTransparency = 0.88}, 0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-        tw(winScale, {Scale = 1},                     0.42, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
+        tw(winScale, {Scale = 1}, 0.42, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
     end
 
     local function hideAnim(onDone)
         blur.Size = 0
-        tw(shadow,   {BackgroundTransparency = 1}, 0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
-        tw(winScale, {Scale = 0},                  0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        tw(winScale, {Scale = 0}, 0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
         task.delay(0.30, function()
-            win.Visible    = false
-            shadow.Visible = false
+            win.Visible = false
             if onDone then onDone() end
         end)
     end
@@ -371,7 +355,6 @@ function Phantom.new(opts)
 
     self._gui     = gui
     self._win     = win
-    self._shadow  = shadow
     self._winScale= winScale
     self._blur    = blur
     self._sidebar = sidebar
