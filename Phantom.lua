@@ -313,17 +313,24 @@ function Phantom.new(opts)
     footerLbl.ZIndex                 = 3
     footerLbl.Parent                 = footer
 
-    -- ── Drag ──────────────────────────────────────────────────
+    -- ── Drag + Resize state (declared together so both InputChanged and InputEnded see them)
     local dragging, dStart, wStart
+    local resizing, resizeOrigin, resizeStartW, resizeStartH
+
     topBar.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 then
             dragging = true; dStart = i.Position; wStart = win.Position
         end
     end)
     UIS.InputChanged:Connect(function(i)
-        if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+        if i.UserInputType ~= Enum.UserInputType.MouseMovement then return end
+        if dragging then
             local d = i.Position - dStart
             win.Position = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y)
+        elseif resizing then
+            local newW = math.clamp(resizeStartW + (i.Position.X - resizeOrigin.X), 420, 1000)
+            local newH = math.clamp(resizeStartH + (i.Position.Y - resizeOrigin.Y), 300, 720)
+            win.Size = UDim2.new(0, newW, 0, newH)
         end
     end)
     UIS.InputEnded:Connect(function(i)
@@ -334,7 +341,7 @@ function Phantom.new(opts)
     end)
 
     -- ── Resize grip ───────────────────────────────────────────
-    local resizing, resizeOrigin, resizeStartW, resizeStartH = false
+    -- (resizing/resizeOrigin/resizeStartW/resizeStartH declared above with drag vars)
     local resizeGrip = Instance.new("Frame")
     resizeGrip.Size                   = UDim2.new(0, 18, 0, 18)
     resizeGrip.Position               = UDim2.new(1, -18, 1, -18)
@@ -344,35 +351,27 @@ function Phantom.new(opts)
     resizeGrip.ZIndex                 = 10
     resizeGrip.Parent                 = win
     corner(resizeGrip, 5)
-    -- three dots visual
     for row = 0, 1 do
         for col = 0, 1 do
             if not (row == 0 and col == 0) then
-                local d = Instance.new("Frame")
-                d.Size             = UDim2.new(0, 3, 0, 3)
-                d.Position         = UDim2.new(0, 4 + col * 6, 0, 4 + row * 6)
-                d.BackgroundColor3 = Color3.new(1,1,1)
-                d.BackgroundTransparency = 0.3
-                d.BorderSizePixel  = 0
-                d.ZIndex           = 11
-                d.Parent           = resizeGrip
-                corner(d, 2)
+                local dot2 = Instance.new("Frame")
+                dot2.Size                   = UDim2.new(0, 3, 0, 3)
+                dot2.Position               = UDim2.new(0, 4 + col * 6, 0, 4 + row * 6)
+                dot2.BackgroundColor3       = Color3.new(1, 1, 1)
+                dot2.BackgroundTransparency = 0.3
+                dot2.BorderSizePixel        = 0
+                dot2.ZIndex                 = 11
+                dot2.Parent                 = resizeGrip
+                corner(dot2, 2)
             end
         end
     end
     resizeGrip.InputBegan:Connect(function(i)
         if i.UserInputType == Enum.UserInputType.MouseButton1 then
-            resizing      = true
-            resizeOrigin  = i.Position
-            resizeStartW  = win.Size.X.Offset
-            resizeStartH  = win.Size.Y.Offset
-        end
-    end)
-    UIS.InputChanged:Connect(function(i)
-        if resizing and i.UserInputType == Enum.UserInputType.MouseMovement then
-            local newW = math.clamp(resizeStartW + (i.Position.X - resizeOrigin.X), 420, 1000)
-            local newH = math.clamp(resizeStartH + (i.Position.Y - resizeOrigin.Y), 300, 720)
-            win.Size = UDim2.new(0, newW, 0, newH)
+            resizing     = true
+            resizeOrigin = i.Position
+            resizeStartW = win.Size.X.Offset
+            resizeStartH = win.Size.Y.Offset
         end
     end)
 
@@ -418,6 +417,43 @@ function Phantom.new(opts)
     self._T       = T       -- store local theme copy for use in methods
 
     return self
+end
+
+-- ── SetAccent ─────────────────────────────────────────────────
+-- Walk all window descendants and swap every element that still uses
+-- the current accent colour to the new one, then update the theme table.
+function Phantom:SetAccent(newColor)
+    local T   = self._T
+    local old = T.Accent
+    T.Accent  = newColor
+    local function walk(inst)
+        for _, child in ipairs(inst:GetChildren()) do
+            -- Frames, TextButtons, ImageButtons  (BackgroundColor3)
+            if child:IsA("GuiObject") then
+                if child.BackgroundColor3 == old then
+                    child.BackgroundColor3 = newColor
+                end
+            end
+            -- Images (ImageColor3)
+            if child:IsA("ImageLabel") or child:IsA("ImageButton") then
+                if child.ImageColor3 == old then
+                    child.ImageColor3 = newColor
+                end
+            end
+            -- Text (TextColor3)
+            if child:IsA("TextLabel") or child:IsA("TextButton") then
+                if child.TextColor3 == old then
+                    child.TextColor3 = newColor
+                end
+            end
+            -- Strokes (Color)
+            if child:IsA("UIStroke") then
+                if child.Color == old then child.Color = newColor end
+            end
+            walk(child)
+        end
+    end
+    walk(self._win)
 end
 
 -- ── Profile (call after Phantom.new, before NewTab) ───────────
@@ -532,9 +568,15 @@ function Phantom:LoadConfig(name)
 end
 
 function Phantom:AutoSave(name, interval)
-    task.spawn(function()
+    -- Cancel any previous auto-save loop before starting a new one
+    if self._autoSaveThread then
+        task.cancel(self._autoSaveThread)
+        self._autoSaveThread = nil
+    end
+    local secs = interval or 30
+    self._autoSaveThread = task.spawn(function()
         while self._gui and self._gui.Parent do
-            task.wait(interval or 30)
+            task.wait(secs)
             self:SaveConfig(name)
         end
     end)
@@ -651,14 +693,18 @@ function Phantom:NewTab(opts)
     local btnLbl = Instance.new("TextLabel")
     btnLbl.Text                   = tabTitle
     btnLbl.Font                   = T.FontReg
-    btnLbl.TextSize               = 13
+    btnLbl.TextScaled             = true
     btnLbl.TextColor3             = T.Muted
     btnLbl.BackgroundTransparency = 1
-    btnLbl.Size                   = UDim2.new(1, -(txtX + 4), 1, 0)
+    btnLbl.Size                   = UDim2.new(1, -(txtX + 6), 1, 0)
     btnLbl.Position               = UDim2.new(0, txtX, 0, 0)
     btnLbl.TextXAlignment         = Enum.TextXAlignment.Left
     btnLbl.ZIndex                 = 3
     btnLbl.Parent                 = btn
+    local tabTxtCons = Instance.new("UITextSizeConstraint")
+    tabTxtCons.MaxTextSize = 13
+    tabTxtCons.MinTextSize = 8
+    tabTxtCons.Parent      = btnLbl
 
     local tabFrame = Instance.new("Frame")
     tabFrame.Size                   = UDim2.new(1, 0, 1, 0)
