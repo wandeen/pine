@@ -152,17 +152,17 @@ function Phantom.new(opts)
     blur.Size   = 0
     blur.Parent = game:GetService("Lighting")
 
-    -- Drop shadow
+    -- Drop shadow — kept very subtle so it doesn't create a visible dark border ring
     local shadow = Instance.new("Frame")
     shadow.AnchorPoint            = Vector2.new(0.5, 0.5)
-    shadow.Size                   = UDim2.new(0, W + 20, 0, H + 20)
-    shadow.Position               = UDim2.new(0.5, 0, 0.5, 8)
+    shadow.Size                   = UDim2.new(0, W + 4, 0, H + 10)
+    shadow.Position               = UDim2.new(0.5, 0, 0.5, 6)
     shadow.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
     shadow.BackgroundTransparency = 1
     shadow.BorderSizePixel        = 0
     shadow.ZIndex                 = 0
     shadow.Parent                 = gui
-    corner(shadow, 18)
+    corner(shadow, 14)
 
     -- Main window
     local win = Instance.new("Frame")
@@ -234,8 +234,8 @@ function Phantom.new(opts)
     subLbl.ZIndex                 = 3
     subLbl.Parent                 = topBar
 
-    local minBtn   = makePillBtn(topBar, -68, "−", T.Accent,  Color3.new(1,1,1), T)
-    local closeBtn = makePillBtn(topBar, -36, "✕", T.Danger,  Color3.new(1,1,1), T)
+    local minBtn   = makePillBtn(topBar, -68, "-", T.Accent, Color3.new(1,1,1), T)
+    local closeBtn = makePillBtn(topBar, -36, "X", T.Danger, Color3.new(1,1,1), T)
 
     -- ── Sidebar ───────────────────────────────────────────────
     local sidebar = Instance.new("Frame")
@@ -338,7 +338,7 @@ function Phantom.new(opts)
         shadow.BackgroundTransparency = 1
         winScale.Scale = 0
         blur.Size      = 10
-        tw(shadow,   {BackgroundTransparency = 0.65}, 0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        tw(shadow,   {BackgroundTransparency = 0.88}, 0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
         tw(winScale, {Scale = 1},                     0.42, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
     end
 
