@@ -171,6 +171,59 @@ else
     UnkSec:NewLabel("PlaceId: " .. tostring(PlaceId))
 end
 
+-- ── Settings Tab ──────────────────────────────────────────────
+local SetTab    = Hub:NewTab({ Title = "Settings", Icon = "rbxassetid://3926307641" })
+local AppearSec = SetTab:NewSection({ Position = "Left",  Title = "Appearance" })
+local DataSec   = SetTab:NewSection({ Position = "Right", Title = "Config" })
+local KbSec     = SetTab:NewSection({ Position = "Right", Title = "Keybind" })
+
+-- Accent colour picker
+AppearSec:NewColorPicker({
+    Title    = "Accent Color",
+    Default  = Color3.fromRGB(110, 75, 255),
+    Callback = function(c)
+        Phantom.Theme.Accent = c
+    end,
+})
+
+-- Window transparency
+AppearSec:NewSlider({
+    Title    = "Window Opacity %",
+    Min      = 30,
+    Max      = 100,
+    Default  = 85,
+    Callback = function(v)
+        Hub._win.BackgroundTransparency = 1 - (v / 100)
+    end,
+})
+
+-- Config
+DataSec:NewButton({
+    Title    = "Save Config",
+    Callback = function()
+        Hub:SaveConfig("phantom")
+        Hub:Notify({ Title = "Config", Message = "Saved successfully", Duration = 2 })
+    end,
+})
+DataSec:NewButton({
+    Title    = "Load Config",
+    Callback = function()
+        Hub:LoadConfig("phantom")
+        Hub:Notify({ Title = "Config", Message = "Loaded successfully", Duration = 2 })
+    end,
+})
+DataSec:NewLabel("Auto-saves every 60s")
+Hub:AutoSave("phantom", 60)
+
+-- Keybind
+KbSec:NewKeybind({
+    Title    = "Toggle Keybind",
+    Default  = Enum.KeyCode.J,
+    Callback = function(key)
+        Hub.Keybind = key
+    end,
+})
+
 -- ── Startup Notification ──────────────────────────────────────
 Hub:Notify({
     Title    = "Phantom Loaded",
