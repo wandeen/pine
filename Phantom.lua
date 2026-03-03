@@ -101,7 +101,7 @@ function Phantom.new(opts)
     win.Size                   = UDim2.new(0, 460, 0, 320)
     win.Position               = UDim2.new(0.5, -230, 0.5, -160)
     win.BackgroundColor3       = T.BG
-    win.BackgroundTransparency = 1
+    win.BackgroundTransparency = T.BGTrans
     win.BorderSizePixel        = 0
     win.ZIndex                 = 1
     win.Parent                 = gui
@@ -196,18 +196,18 @@ function Phantom.new(opts)
     sidebar.Parent                 = win
     corner(sidebar, 12)
 
-    -- Square off the right corners of sidebar
+    listLayout(sidebar, 4)
+    padding(sidebar, 8, 6, 8, 6)
+
+    -- Square off the right rounded corners of sidebar (parented to win to avoid UIListLayout conflict)
     local sideFix = Instance.new("Frame")
-    sideFix.Size                   = UDim2.new(0.5, 0, 1, 0)
-    sideFix.Position               = UDim2.new(0.5, 0, 0, 0)
+    sideFix.Size                   = UDim2.new(0, 14, 1, -38)
+    sideFix.Position               = UDim2.new(0, 94, 0, 38)
     sideFix.BackgroundColor3       = T.BG2
     sideFix.BackgroundTransparency = 0
     sideFix.BorderSizePixel        = 0
     sideFix.ZIndex                 = 1
-    sideFix.Parent                 = sidebar
-
-    listLayout(sidebar, 4)
-    padding(sidebar, 8, 6, 8, 6)
+    sideFix.Parent                 = win
 
     -- Divider line
     local sideDiv = Instance.new("Frame")
@@ -252,25 +252,23 @@ function Phantom.new(opts)
 
     -- ── Animations ───────────────────────────────────────────
     local function showAnim()
-        win.Visible                    = true
-        shadow.Visible                 = true
-        win.BackgroundTransparency     = 1
-        shadow.BackgroundTransparency  = 1
-        winScale.Scale                 = 0.85
-        blur.Size                      = 8
-        tw(win,      {BackgroundTransparency = T.BGTrans}, 0.5, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
-        tw(shadow,   {BackgroundTransparency = 0.65},      0.5, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
-        tw(winScale, {Scale = 1},                          0.5, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
+        win.Visible    = true
+        shadow.Visible = true
+        shadow.BackgroundTransparency = 1
+        winScale.Scale = 0.85
+        blur.Size      = 8
+        tw(shadow,   {BackgroundTransparency = 0.65}, 0.4, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        tw(winScale, {Scale = 1},                     0.45, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
     end
 
     local function hideAnim()
         blur.Size = 0
-        tw(win,      {BackgroundTransparency = 1},   0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
-        tw(shadow,   {BackgroundTransparency = 1},   0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
-        tw(winScale, {Scale = 0.88},                 0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
-        task.delay(0.27, function()
+        tw(shadow,   {BackgroundTransparency = 1}, 0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        tw(winScale, {Scale = 0.88},               0.22, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        task.delay(0.25, function()
             win.Visible    = false
             shadow.Visible = false
+            winScale.Scale = 0.85
         end)
     end
 
