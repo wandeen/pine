@@ -25,7 +25,7 @@ Phantom.Theme = {
     Muted       = Color3.fromRGB(100, 100, 100),
     Off         = Color3.fromRGB(40,  40,  40),
     Danger      = Color3.fromRGB(255, 65,  65),
-    BGTrans     = 0.28,
+    BGTrans     = 0.15,
     Font        = Enum.Font.GothamBold,
     FontReg     = Enum.Font.Gotham,
 }
@@ -259,6 +259,16 @@ function Phantom.new(opts)
     sideDiv.ZIndex                 = 3
     sideDiv.Parent                 = win
 
+    -- Square off the sidebar top corners (gap fix at topBar junction)
+    local sideTopFix = Instance.new("Frame")
+    sideTopFix.Size                   = UDim2.new(0, SIDE, 0, 14)
+    sideTopFix.Position               = UDim2.new(0, 0, 0, TOPBAR)
+    sideTopFix.BackgroundColor3       = T.BG2
+    sideTopFix.BackgroundTransparency = 0
+    sideTopFix.BorderSizePixel        = 0
+    sideTopFix.ZIndex                 = 1
+    sideTopFix.Parent                 = win
+
     -- ── Content area ──────────────────────────────────────────
     local content = Instance.new("Frame")
     content.Name                   = "Content"
@@ -317,7 +327,53 @@ function Phantom.new(opts)
         end
     end)
     UIS.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+            resizing = false
+        end
+    end)
+
+    -- ── Resize grip ───────────────────────────────────────────
+    local resizing, resizeOrigin, resizeStartW, resizeStartH = false
+    local resizeGrip = Instance.new("Frame")
+    resizeGrip.Size                   = UDim2.new(0, 18, 0, 18)
+    resizeGrip.Position               = UDim2.new(1, -18, 1, -18)
+    resizeGrip.BackgroundColor3       = T.Accent
+    resizeGrip.BackgroundTransparency = 0.55
+    resizeGrip.BorderSizePixel        = 0
+    resizeGrip.ZIndex                 = 10
+    resizeGrip.Parent                 = win
+    corner(resizeGrip, 5)
+    -- three dots visual
+    for row = 0, 1 do
+        for col = 0, 1 do
+            if not (row == 0 and col == 0) then
+                local d = Instance.new("Frame")
+                d.Size             = UDim2.new(0, 3, 0, 3)
+                d.Position         = UDim2.new(0, 4 + col * 6, 0, 4 + row * 6)
+                d.BackgroundColor3 = Color3.new(1,1,1)
+                d.BackgroundTransparency = 0.3
+                d.BorderSizePixel  = 0
+                d.ZIndex           = 11
+                d.Parent           = resizeGrip
+                corner(d, 2)
+            end
+        end
+    end
+    resizeGrip.InputBegan:Connect(function(i)
+        if i.UserInputType == Enum.UserInputType.MouseButton1 then
+            resizing      = true
+            resizeOrigin  = i.Position
+            resizeStartW  = win.Size.X.Offset
+            resizeStartH  = win.Size.Y.Offset
+        end
+    end)
+    UIS.InputChanged:Connect(function(i)
+        if resizing and i.UserInputType == Enum.UserInputType.MouseMovement then
+            local newW = math.clamp(resizeStartW + (i.Position.X - resizeOrigin.X), 420, 1000)
+            local newH = math.clamp(resizeStartH + (i.Position.Y - resizeOrigin.Y), 300, 720)
+            win.Size = UDim2.new(0, newW, 0, newH)
+        end
     end)
 
     -- ── Animations ────────────────────────────────────────────
@@ -415,26 +471,34 @@ function Phantom:SetProfile()
     local nameLbl = Instance.new("TextLabel")
     nameLbl.Text                   = lp.DisplayName
     nameLbl.Font                   = T.Font
-    nameLbl.TextSize               = 11
+    nameLbl.TextScaled             = true
     nameLbl.TextColor3             = T.Text
     nameLbl.BackgroundTransparency = 1
-    nameLbl.Size                   = UDim2.new(1, 0, 0, 14)
-    nameLbl.Position               = UDim2.new(0, 0, 0, 52)
+    nameLbl.Size                   = UDim2.new(1, -8, 0, 14)
+    nameLbl.Position               = UDim2.new(0, 4, 0, 52)
     nameLbl.TextXAlignment         = Enum.TextXAlignment.Center
     nameLbl.Parent                 = profileFrame
+    local nameConstraint = Instance.new("UITextSizeConstraint")
+    nameConstraint.MaxTextSize = 11
+    nameConstraint.MinTextSize = 7
+    nameConstraint.Parent      = nameLbl
 
     -- @username (always shown)
     local userLbl = Instance.new("TextLabel")
     userLbl.Text                   = "@" .. lp.Name
     userLbl.Font                   = T.FontReg
-    userLbl.TextSize               = 10
+    userLbl.TextScaled             = true
     userLbl.TextColor3             = T.Muted
     userLbl.BackgroundTransparency = 1
-    userLbl.Size                   = UDim2.new(1, 0, 0, 12)
-    userLbl.Position               = UDim2.new(0, 0, 0, 65)
+    userLbl.Size                   = UDim2.new(1, -8, 0, 12)
+    userLbl.Position               = UDim2.new(0, 4, 0, 65)
     userLbl.TextXAlignment         = Enum.TextXAlignment.Center
     userLbl.Parent                 = profileFrame
     profileFrame.Size              = UDim2.new(1, 0, 0, 88)
+    local userConstraint = Instance.new("UITextSizeConstraint")
+    userConstraint.MaxTextSize = 10
+    userConstraint.MinTextSize = 6
+    userConstraint.Parent      = userLbl
 
     -- Divider below profile
     local div = Instance.new("Frame")
