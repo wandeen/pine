@@ -126,7 +126,7 @@ function Phantom.new(cfg)
     local self      = setmetatable({}, Phantom)
     self.Title      = cfg.Title    or "Phantom"
     self.Subtitle   = cfg.Subtitle or "hub"
-    self.Keybind    = cfg.Keybind  or Enum.KeyCode.RightShift
+    self.Keybind    = cfg.Keybind  or Enum.KeyCode.J
     self.Tabs       = {}
     self.ActiveTab  = nil
     self.Visible    = true
@@ -157,11 +157,15 @@ function Phantom.new(cfg)
         BackgroundColor3     = T.BG,
         BackgroundTransparency = T.BGTrans,
         BorderSizePixel      = 0,
-        ClipsDescendants     = true,
         Parent               = gui,
     })
     Corner(win, 14)
     Stroke(win, T.Border, 1.5, 0.2)
+
+    -- UIScale for open/close animations (avoids the "bar" problem)
+    local winScale  = Instance.new("UIScale")
+    winScale.Scale  = 1
+    winScale.Parent = win
 
     -- Gradient
     New("UIGradient", {
@@ -264,8 +268,10 @@ function Phantom.new(cfg)
     })
     Corner(closeBtn, 10)
     closeBtn.MouseButton1Click:Connect(function()
-        Tween(win, {Size = UDim2.new(0, 540, 0, 0), BackgroundTransparency = 1}, 0.35)
-        task.delay(0.36, function()
+        blur.Size = 0
+        Tween(win,      {BackgroundTransparency = 1}, 0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        Tween(winScale, {Scale = 0.88},               0.3, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+        task.delay(0.31, function()
             gui:Destroy()
             blur:Destroy()
         end)
@@ -306,20 +312,32 @@ function Phantom.new(cfg)
     self._tabBar  = tabBar
     self._content = content
 
-    -- Keybind toggle
+    -- Keybind toggle (J) with smooth open/close animation
     UserInputService.InputBegan:Connect(function(i, gpe)
         if gpe then return end
         if i.KeyCode == self.Keybind then
             self.Visible = not self.Visible
-            win.Visible  = self.Visible
-            blur.Size    = self.Visible and 10 or 0
+            if self.Visible then
+                win.Visible                = true
+                blur.Size                  = 10
+                win.BackgroundTransparency = 1
+                winScale.Scale             = 0.88
+                Tween(win,      {BackgroundTransparency = T.BGTrans}, 0.35, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
+                Tween(winScale, {Scale = 1},                          0.35, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
+            else
+                blur.Size = 0
+                Tween(win,      {BackgroundTransparency = 1},  0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+                Tween(winScale, {Scale = 0.88},                0.25, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
+                task.delay(0.26, function() win.Visible = false end)
+            end
         end
     end)
 
-    -- Open animation
-    win.Size                   = UDim2.new(0, 540, 0, 0)
+    -- Open animation: scale up from 88% + fade in (no size change = no bar glitch)
     win.BackgroundTransparency = 1
-    Tween(win, { Size = UDim2.new(0, 540, 0, 380), BackgroundTransparency = T.BGTrans }, 0.5)
+    winScale.Scale             = 0.88
+    Tween(win,      {BackgroundTransparency = T.BGTrans}, 0.45, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+    Tween(winScale, {Scale = 1},                          0.45, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
 
     return self
 end
