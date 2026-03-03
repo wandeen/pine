@@ -9,24 +9,28 @@ Phantom.__index = Phantom
 
 -- ── Theme ────────────────────────────────────────────────────
 local T = {
-    BG       = Color3.fromRGB(11, 11, 11),
-    BG2      = Color3.fromRGB(18, 18, 18),
-    BG3      = Color3.fromRGB(24, 24, 24),
-    Accent   = Color3.fromRGB(110, 75, 255),
-    AccentDim= Color3.fromRGB(70, 50, 170),
-    Text     = Color3.fromRGB(238, 238, 238),
-    Muted    = Color3.fromRGB(110, 110, 110),
-    Off      = Color3.fromRGB(40, 40, 40),
-    BGTrans  = 0.10,
-    Font     = Enum.Font.GothamBold,
-    FontReg  = Enum.Font.Gotham,
+    BG          = Color3.fromRGB(11, 11, 11),
+    BG2         = Color3.fromRGB(18, 18, 18),
+    BG3         = Color3.fromRGB(24, 24, 24),
+    BG4         = Color3.fromRGB(32, 32, 32),
+    Accent      = Color3.fromRGB(110, 75, 255),
+    AccentDim   = Color3.fromRGB(70, 50, 170),
+    AccentBright= Color3.fromRGB(140, 105, 255),
+    Text        = Color3.fromRGB(238, 238, 238),
+    TextDim     = Color3.fromRGB(180, 180, 180),
+    Muted       = Color3.fromRGB(100, 100, 100),
+    Off         = Color3.fromRGB(40, 40, 40),
+    Danger      = Color3.fromRGB(255, 65, 65),
+    BGTrans     = 0.10,
+    Font        = Enum.Font.GothamBold,
+    FontReg     = Enum.Font.Gotham,
 }
 
--- Window dimensions (single place to tweak)
-local W, H   = 580, 400   -- window width / height
-local TOPBAR = 40          -- top bar height
-local SIDE   = 116         -- sidebar width
-local FOOTER = 26          -- footer height
+-- Window dimensions
+local W, H   = 580, 400
+local TOPBAR = 40
+local SIDE   = 116
+local FOOTER = 26
 
 -- ── Helpers ──────────────────────────────────────────────────
 local function tw(obj, props, t, s, d)
@@ -43,10 +47,11 @@ local function corner(p, r)
     c.Parent = p
 end
 
-local function stroke(p, col, tr)
+local function stroke(p, col, tr, thick)
     local s = Instance.new("UIStroke")
-    s.Color        = col or Color3.new(1, 1, 1)
-    s.Transparency = tr  or 0.9
+    s.Color        = col   or Color3.new(1, 1, 1)
+    s.Transparency = tr    or 0.9
+    s.Thickness    = thick or 1
     s.Parent       = p
     return s
 end
@@ -65,6 +70,41 @@ local function padding(p, top, right, bottom, left)
     u.PaddingBottom = UDim.new(0, bottom or 0)
     u.PaddingLeft   = UDim.new(0, left   or 0)
     u.Parent = p
+end
+
+-- Pill button used for close/minimize in the top bar
+local function makePillBtn(parent, posX, symbol, hoverBg, hoverText)
+    local pill = Instance.new("Frame")
+    pill.Size                   = UDim2.new(0, 26, 0, 26)
+    pill.Position               = UDim2.new(1, posX, 0.5, -13)
+    pill.BackgroundColor3       = hoverBg
+    pill.BackgroundTransparency = 1
+    pill.BorderSizePixel        = 0
+    pill.ZIndex                 = 3
+    pill.Parent                 = parent
+    corner(pill, 6)
+
+    local btn = Instance.new("TextButton")
+    btn.Text                   = symbol
+    btn.Font                   = T.Font
+    btn.TextSize               = 12
+    btn.TextColor3             = T.Muted
+    btn.BackgroundTransparency = 1
+    btn.Size                   = UDim2.new(1, 0, 1, 0)
+    btn.AutoButtonColor        = false
+    btn.ZIndex                 = 4
+    btn.Parent                 = pill
+
+    btn.MouseEnter:Connect(function()
+        tw(pill, {BackgroundTransparency = 0.15}, 0.14)
+        tw(btn,  {TextColor3 = hoverText},         0.14)
+    end)
+    btn.MouseLeave:Connect(function()
+        tw(pill, {BackgroundTransparency = 1},   0.14)
+        tw(btn,  {TextColor3 = T.Muted},          0.14)
+    end)
+
+    return btn
 end
 
 -- ── Window ───────────────────────────────────────────────────
@@ -90,19 +130,19 @@ function Phantom.new(opts)
     blur.Size   = 0
     blur.Parent = game:GetService("Lighting")
 
-    -- Drop shadow — AnchorPoint(0.5,0.5) so UIScale expands from center
+    -- Drop shadow
     local shadow = Instance.new("Frame")
     shadow.AnchorPoint            = Vector2.new(0.5, 0.5)
-    shadow.Size                   = UDim2.new(0, W + 12, 0, H + 12)
-    shadow.Position               = UDim2.new(0.5, 0, 0.5, 5)   -- slight downward offset = depth
+    shadow.Size                   = UDim2.new(0, W + 20, 0, H + 20)
+    shadow.Position               = UDim2.new(0.5, 0, 0.5, 8)
     shadow.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
     shadow.BackgroundTransparency = 1
     shadow.BorderSizePixel        = 0
     shadow.ZIndex                 = 0
     shadow.Parent                 = gui
-    corner(shadow, 16)
+    corner(shadow, 18)
 
-    -- Main window — AnchorPoint(0.5,0.5) is the KEY animation fix
+    -- Main window
     local win = Instance.new("Frame")
     win.Name                   = "Win"
     win.AnchorPoint            = Vector2.new(0.5, 0.5)
@@ -114,9 +154,10 @@ function Phantom.new(opts)
     win.ZIndex                 = 1
     win.Parent                 = gui
     corner(win, 12)
-    stroke(win, Color3.fromRGB(255, 255, 255), 0.92)
+    -- Accent-tinted border — intentionally purple, not the black artifact from a faint white stroke
+    stroke(win, T.Accent, 0.80)
 
-    -- UIScale — scales from center because win has AnchorPoint(0.5, 0.5)
+    -- UIScale — scales from center (AnchorPoint 0.5,0.5)
     local winScale  = Instance.new("UIScale")
     winScale.Scale  = 0.85
     winScale.Parent = win
@@ -131,7 +172,6 @@ function Phantom.new(opts)
     topBar.Parent                 = win
     corner(topBar, 12)
 
-    -- Square off the bottom corners of topBar
     local topFix = Instance.new("Frame")
     topFix.Size                   = UDim2.new(1, 0, 0.5, 0)
     topFix.Position               = UDim2.new(0, 0, 0.5, 0)
@@ -177,35 +217,9 @@ function Phantom.new(opts)
     subLbl.ZIndex                 = 3
     subLbl.Parent                 = topBar
 
-    -- Minimize button (−)
-    local minBtn = Instance.new("TextButton")
-    minBtn.Text                   = "−"
-    minBtn.Font                   = T.Font
-    minBtn.TextSize               = 18
-    minBtn.TextColor3             = T.Muted
-    minBtn.BackgroundTransparency = 1
-    minBtn.Size                   = UDim2.new(0, 34, 1, 0)
-    minBtn.Position               = UDim2.new(1, -70, 0, 0)
-    minBtn.AutoButtonColor        = false
-    minBtn.ZIndex                 = 3
-    minBtn.Parent                 = topBar
-    minBtn.MouseEnter:Connect(function() tw(minBtn, {TextColor3 = T.Text}, 0.12) end)
-    minBtn.MouseLeave:Connect(function() tw(minBtn, {TextColor3 = T.Muted}, 0.12) end)
-
-    -- Close button (destroys GUI entirely — re-inject to reopen)
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Text                   = "✕"
-    closeBtn.Font                   = T.Font
-    closeBtn.TextSize               = 13
-    closeBtn.TextColor3             = T.Muted
-    closeBtn.BackgroundTransparency = 1
-    closeBtn.Size                   = UDim2.new(0, 34, 1, 0)
-    closeBtn.Position               = UDim2.new(1, -36, 0, 0)
-    closeBtn.AutoButtonColor        = false
-    closeBtn.ZIndex                 = 3
-    closeBtn.Parent                 = topBar
-    closeBtn.MouseEnter:Connect(function() tw(closeBtn, {TextColor3 = Color3.fromRGB(255, 70, 70)}, 0.12) end)
-    closeBtn.MouseLeave:Connect(function() tw(closeBtn, {TextColor3 = T.Muted}, 0.12) end)
+    -- Pill buttons: minimize (−) and close (✕)
+    local minBtn   = makePillBtn(topBar, -68, "−", T.Accent,  Color3.new(1,1,1))
+    local closeBtn = makePillBtn(topBar, -36, "✕", T.Danger,  Color3.new(1,1,1))
 
     -- ── Sidebar ───────────────────────────────────────────────
     local sidebar = Instance.new("Frame")
@@ -218,11 +232,9 @@ function Phantom.new(opts)
     sidebar.ZIndex                 = 2
     sidebar.Parent                 = win
     corner(sidebar, 12)
-
     listLayout(sidebar, 5)
     padding(sidebar, 10, 7, 10, 7)
 
-    -- Square off the right rounded corners of sidebar (parented to win — avoids UIListLayout conflict)
     local sideFix = Instance.new("Frame")
     sideFix.Size                   = UDim2.new(0, 14, 1, -(TOPBAR + FOOTER))
     sideFix.Position               = UDim2.new(0, SIDE - 14, 0, TOPBAR)
@@ -232,7 +244,6 @@ function Phantom.new(opts)
     sideFix.ZIndex                 = 1
     sideFix.Parent                 = win
 
-    -- Divider line between sidebar and content
     local sideDiv = Instance.new("Frame")
     sideDiv.Size                   = UDim2.new(0, 1, 1, -(TOPBAR + FOOTER))
     sideDiv.Position               = UDim2.new(0, SIDE, 0, TOPBAR)
@@ -264,7 +275,6 @@ function Phantom.new(opts)
     footer.Parent                 = win
     corner(footer, 12)
 
-    -- Square off the top corners of footer
     local footFix = Instance.new("Frame")
     footFix.Size                   = UDim2.new(1, 0, 0.5, 0)
     footFix.Position               = UDim2.new(0, 0, 0, 0)
@@ -300,7 +310,7 @@ function Phantom.new(opts)
         if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
             local d = i.Position - dStart
             win.Position    = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y)
-            shadow.Position = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y + 5)
+            shadow.Position = UDim2.new(wStart.X.Scale, wStart.X.Offset + d.X, wStart.Y.Scale, wStart.Y.Offset + d.Y + 8)
         end
     end)
     UIS.InputEnded:Connect(function(i)
@@ -312,9 +322,9 @@ function Phantom.new(opts)
         win.Visible    = true
         shadow.Visible = true
         shadow.BackgroundTransparency = 1
-        winScale.Scale = 0        -- start from nothing so it grows into view
+        winScale.Scale = 0
         blur.Size      = 10
-        tw(shadow,   {BackgroundTransparency = 0.6},  0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+        tw(shadow,   {BackgroundTransparency = 0.65}, 0.38, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
         tw(winScale, {Scale = 1},                     0.42, Enum.EasingStyle.Back,  Enum.EasingDirection.Out)
     end
 
@@ -329,13 +339,11 @@ function Phantom.new(opts)
         end)
     end
 
-    -- Minimize: hide with animation, J brings it back
     minBtn.MouseButton1Click:Connect(function()
         self.Visible = false
         hideAnim()
     end)
 
-    -- Close: hide then destroy everything — needs re-inject to reopen
     closeBtn.MouseButton1Click:Connect(function()
         hideAnim(function()
             blur:Destroy()
@@ -369,7 +377,6 @@ end
 function Phantom:NewTab(opts)
     self._tabN = self._tabN + 1
 
-    -- Sidebar button (text="" so we control label separately for icon support)
     local btn = Instance.new("TextButton")
     btn.Text                   = ""
     btn.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
@@ -386,13 +393,13 @@ function Phantom:NewTab(opts)
     local txtX   = 8
     if opts.Icon then
         btnIco = Instance.new("ImageLabel")
-        btnIco.Image                 = opts.Icon
-        btnIco.Size                  = UDim2.new(0, 14, 0, 14)
-        btnIco.Position              = UDim2.new(0, 8, 0.5, -7)
+        btnIco.Image                  = opts.Icon
+        btnIco.Size                   = UDim2.new(0, 14, 0, 14)
+        btnIco.Position               = UDim2.new(0, 8, 0.5, -7)
         btnIco.BackgroundTransparency = 1
-        btnIco.ImageColor3           = T.Muted
-        btnIco.ZIndex                = 3
-        btnIco.Parent                = btn
+        btnIco.ImageColor3            = T.Muted
+        btnIco.ZIndex                 = 3
+        btnIco.Parent                 = btn
         txtX = 26
     end
 
@@ -408,7 +415,7 @@ function Phantom:NewTab(opts)
     btnLbl.ZIndex                 = 3
     btnLbl.Parent                 = btn
 
-    -- Tab frame (holds two scroll columns)
+    -- Tab frame
     local tabFrame = Instance.new("Frame")
     tabFrame.Size                   = UDim2.new(1, 0, 1, 0)
     tabFrame.BackgroundTransparency = 1
@@ -418,15 +425,15 @@ function Phantom:NewTab(opts)
 
     local function makeScrollCol(pos, size)
         local sf = Instance.new("ScrollingFrame")
-        sf.Size                  = size
-        sf.Position              = pos
+        sf.Size                   = size
+        sf.Position               = pos
         sf.BackgroundTransparency = 1
-        sf.BorderSizePixel       = 0
-        sf.ScrollBarThickness    = 2
-        sf.ScrollBarImageColor3  = T.Accent
-        sf.CanvasSize            = UDim2.new(0, 0, 0, 0)
-        sf.AutomaticCanvasSize   = Enum.AutomaticSize.Y
-        sf.Parent                = tabFrame
+        sf.BorderSizePixel        = 0
+        sf.ScrollBarThickness     = 2
+        sf.ScrollBarImageColor3   = T.Accent
+        sf.CanvasSize             = UDim2.new(0, 0, 0, 0)
+        sf.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+        sf.Parent                 = tabFrame
         listLayout(sf, 6)
         padding(sf, 7, 5, 7, 5)
         return sf
@@ -435,27 +442,24 @@ function Phantom:NewTab(opts)
     local leftCol  = makeScrollCol(UDim2.new(0, 0, 0, 0),  UDim2.new(0.5, -1, 1, 0))
     local rightCol = makeScrollCol(UDim2.new(0.5, 1, 0, 0), UDim2.new(0.5, -1, 1, 0))
 
-    -- Activate logic
     local tabData = {_frame = tabFrame, _btn = btn, _btnSt = btnSt, _btnLbl = btnLbl, _btnIco = btnIco}
 
     local function activate()
         if self._active then
             self._active._frame.Visible = false
-            tw(self._active._btn,   {BackgroundTransparency = 1}, 0.15)
-            tw(self._active._btnSt, {Transparency = 1}, 0.15)
-            tw(self._active._btnLbl, {TextColor3 = T.Muted}, 0.15)
+            tw(self._active._btn,    {BackgroundTransparency = 1},  0.15)
+            tw(self._active._btnSt,  {Transparency = 1},            0.15)
+            tw(self._active._btnLbl, {TextColor3 = T.Muted},        0.15)
             if self._active._btnIco then
                 tw(self._active._btnIco, {ImageColor3 = T.Muted}, 0.15)
             end
         end
-        self._active      = tabData
-        tabFrame.Visible  = true
+        self._active     = tabData
+        tabFrame.Visible = true
         tw(btn,    {BackgroundTransparency = 0.86}, 0.18)
-        tw(btnSt,  {Transparency = 0.7}, 0.18)
-        tw(btnLbl, {TextColor3 = T.Text}, 0.18)
-        if btnIco then
-            tw(btnIco, {ImageColor3 = T.Text}, 0.18)
-        end
+        tw(btnSt,  {Transparency = 0.7},            0.18)
+        tw(btnLbl, {TextColor3 = T.Text},           0.18)
+        if btnIco then tw(btnIco, {ImageColor3 = T.Text}, 0.18) end
     end
 
     btn.MouseButton1Click:Connect(activate)
@@ -466,7 +470,7 @@ function Phantom:NewTab(opts)
     local Tab = {}
 
     function Tab:NewSection(sopts)
-        local col = (sopts.Position == "Right") and rightCol or leftCol
+        local col   = (sopts.Position == "Right") and rightCol or leftCol
         local order = #col:GetChildren()
 
         local secFrame = Instance.new("Frame")
@@ -482,7 +486,6 @@ function Phantom:NewTab(opts)
         listLayout(secFrame, 5)
         padding(secFrame, 8, 8, 10, 8)
 
-        -- Section title
         local secTitle = Instance.new("TextLabel")
         secTitle.Text                   = sopts.Title or "Section"
         secTitle.Font                   = T.Font
@@ -494,7 +497,6 @@ function Phantom:NewTab(opts)
         secTitle.LayoutOrder            = 0
         secTitle.Parent                 = secFrame
 
-        -- Accent divider
         local divider = Instance.new("Frame")
         divider.Size                   = UDim2.new(1, 0, 0, 1)
         divider.BackgroundColor3       = T.Accent
@@ -508,6 +510,7 @@ function Phantom:NewTab(opts)
         -- ── Section object ────────────────────────────────────
         local Sec = {}
 
+        -- Toggle ──────────────────────────────────────────────
         function Sec:NewToggle(topts)
             local row = Instance.new("Frame")
             row.Size                   = UDim2.new(1, 0, 0, 30)
@@ -556,13 +559,14 @@ function Phantom:NewTab(opts)
             if state then set(true, false) end
 
             local hit = Instance.new("TextButton")
-            hit.Size = UDim2.new(1, 0, 1, 0)
+            hit.Size               = UDim2.new(1, 0, 1, 0)
             hit.BackgroundTransparency = 1
-            hit.Text = ""
-            hit.Parent = row
+            hit.Text               = ""
+            hit.Parent             = row
             hit.MouseButton1Click:Connect(function() set(not state, true) end)
         end
 
+        -- Slider ──────────────────────────────────────────────
         function Sec:NewSlider(sopts2)
             local wrap = Instance.new("Frame")
             wrap.Size                   = UDim2.new(1, 0, 0, 46)
@@ -619,10 +623,10 @@ function Phantom:NewTab(opts)
 
             local sliding = false
             local hit = Instance.new("TextButton")
-            hit.Size = UDim2.new(1, 0, 1, 0)
+            hit.Size               = UDim2.new(1, 0, 1, 0)
             hit.BackgroundTransparency = 1
-            hit.Text = ""
-            hit.Parent = wrap
+            hit.Text               = ""
+            hit.Parent             = wrap
             hit.InputBegan:Connect(function(i)
                 if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true end
             end)
@@ -639,6 +643,32 @@ function Phantom:NewTab(opts)
             end)
         end
 
+        -- Button ──────────────────────────────────────────────
+        function Sec:NewButton(bopts)
+            local b = Instance.new("TextButton")
+            b.Text             = bopts.Title or "Button"
+            b.Font             = T.FontReg
+            b.TextSize         = 13
+            b.TextColor3       = T.Text
+            b.BackgroundColor3 = T.BG2
+            b.BorderSizePixel  = 0
+            b.AutoButtonColor  = false
+            b.Size             = UDim2.new(1, 0, 0, 28)
+            b.LayoutOrder      = elemN.v; elemN.v += 1
+            b.Parent           = secFrame
+            corner(b, 6)
+            stroke(b, Color3.fromRGB(255, 255, 255), 0.9)
+            b.MouseEnter:Connect(function()  tw(b, {BackgroundColor3 = T.AccentDim}, 0.15) end)
+            b.MouseLeave:Connect(function()  tw(b, {BackgroundColor3 = T.BG2},       0.15) end)
+            b.MouseButton1Click:Connect(function()
+                -- Brief press flash
+                tw(b, {BackgroundColor3 = T.Accent}, 0.08)
+                task.delay(0.12, function() tw(b, {BackgroundColor3 = T.AccentDim}, 0.15) end)
+                if bopts.Callback then bopts.Callback() end
+            end)
+        end
+
+        -- Label ───────────────────────────────────────────────
         function Sec:NewLabel(text)
             local lbl = Instance.new("TextLabel")
             lbl.Text                   = text or ""
@@ -653,24 +683,247 @@ function Phantom:NewTab(opts)
             lbl.Parent                 = secFrame
         end
 
-        function Sec:NewButton(bopts)
-            local b = Instance.new("TextButton")
-            b.Text              = bopts.Title or "Button"
-            b.Font              = T.FontReg
-            b.TextSize          = 13
-            b.TextColor3        = T.Text
-            b.BackgroundColor3  = T.BG2
-            b.BorderSizePixel   = 0
-            b.AutoButtonColor   = false
-            b.Size              = UDim2.new(1, 0, 0, 28)
-            b.LayoutOrder       = elemN.v; elemN.v += 1
-            b.Parent            = secFrame
-            corner(b, 6)
-            stroke(b, Color3.fromRGB(255, 255, 255), 0.9)
-            b.MouseEnter:Connect(function() tw(b, {BackgroundColor3 = T.AccentDim}, 0.15) end)
-            b.MouseLeave:Connect(function() tw(b, {BackgroundColor3 = T.BG2}, 0.15) end)
-            b.MouseButton1Click:Connect(function()
-                if bopts.Callback then bopts.Callback() end
+        -- Separator ───────────────────────────────────────────
+        function Sec:NewSeparator()
+            local sep = Instance.new("Frame")
+            sep.Size                   = UDim2.new(1, 0, 0, 1)
+            sep.BackgroundColor3       = Color3.fromRGB(255, 255, 255)
+            sep.BackgroundTransparency = 0.88
+            sep.BorderSizePixel        = 0
+            sep.LayoutOrder            = elemN.v; elemN.v += 1
+            sep.Parent                 = secFrame
+        end
+
+        -- Dropdown ────────────────────────────────────────────
+        function Sec:NewDropdown(dopts)
+            local wrap = Instance.new("Frame")
+            wrap.Size                   = UDim2.new(1, 0, 0, 52)
+            wrap.BackgroundTransparency = 1
+            wrap.LayoutOrder            = elemN.v; elemN.v += 1
+            wrap.Parent                 = secFrame
+            wrap.ClipsDescendants       = false
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Text                   = dopts.Title or "Dropdown"
+            lbl.Font                   = T.FontReg
+            lbl.TextSize               = 13
+            lbl.TextColor3             = T.Text
+            lbl.BackgroundTransparency = 1
+            lbl.Size                   = UDim2.new(1, 0, 0, 18)
+            lbl.TextXAlignment         = Enum.TextXAlignment.Left
+            lbl.Parent                 = wrap
+
+            local selected = dopts.Default or (dopts.Options and dopts.Options[1]) or ""
+
+            local dropBtn = Instance.new("Frame")
+            dropBtn.Size             = UDim2.new(1, 0, 0, 28)
+            dropBtn.Position         = UDim2.new(0, 0, 0, 22)
+            dropBtn.BackgroundColor3 = T.BG2
+            dropBtn.BorderSizePixel  = 0
+            dropBtn.ZIndex           = 5
+            dropBtn.Parent           = wrap
+            corner(dropBtn, 6)
+            local dropSt = stroke(dropBtn, Color3.fromRGB(255, 255, 255), 0.9)
+
+            local dropLbl = Instance.new("TextLabel")
+            dropLbl.Text                   = selected
+            dropLbl.Font                   = T.FontReg
+            dropLbl.TextSize               = 12
+            dropLbl.TextColor3             = T.TextDim
+            dropLbl.BackgroundTransparency = 1
+            dropLbl.Size                   = UDim2.new(1, -28, 1, 0)
+            dropLbl.Position               = UDim2.new(0, 8, 0, 0)
+            dropLbl.TextXAlignment         = Enum.TextXAlignment.Left
+            dropLbl.ZIndex                 = 6
+            dropLbl.Parent                 = dropBtn
+
+            local arrow = Instance.new("TextLabel")
+            arrow.Text                   = "▾"
+            arrow.Font                   = T.Font
+            arrow.TextSize               = 12
+            arrow.TextColor3             = T.Muted
+            arrow.BackgroundTransparency = 1
+            arrow.Size                   = UDim2.new(0, 22, 1, 0)
+            arrow.Position               = UDim2.new(1, -22, 0, 0)
+            arrow.TextXAlignment         = Enum.TextXAlignment.Center
+            arrow.ZIndex                 = 6
+            arrow.Parent                 = dropBtn
+
+            -- Popup (child of dropBtn so it moves with it; ZIndex keeps it on top)
+            local optionCount = dopts.Options and #dopts.Options or 0
+            local popup = Instance.new("Frame")
+            popup.Size             = UDim2.new(1, 0, 0, optionCount * 26 + 6)
+            popup.Position         = UDim2.new(0, 0, 1, 3)
+            popup.BackgroundColor3 = T.BG3
+            popup.BorderSizePixel  = 0
+            popup.ZIndex           = 10
+            popup.Visible          = false
+            popup.ClipsDescendants = true
+            popup.Parent           = dropBtn
+            corner(popup, 6)
+            stroke(popup, Color3.fromRGB(255, 255, 255), 0.88)
+            listLayout(popup, 2)
+            padding(popup, 3, 3, 3, 3)
+
+            local isOpen = false
+
+            local function closePopup()
+                isOpen = false
+                popup.Visible = false
+                tw(arrow, {Rotation = 0}, 0.15)
+                tw(dropSt, {Color = Color3.fromRGB(255, 255, 255), Transparency = 0.9}, 0.15)
+            end
+
+            for _, opt in ipairs(dopts.Options or {}) do
+                local optBtn = Instance.new("TextButton")
+                optBtn.Text                   = opt
+                optBtn.Font                   = T.FontReg
+                optBtn.TextSize               = 12
+                optBtn.TextColor3             = opt == selected and T.Accent or T.TextDim
+                optBtn.BackgroundColor3       = T.BG4
+                optBtn.BackgroundTransparency = 1
+                optBtn.AutoButtonColor        = false
+                optBtn.Size                   = UDim2.new(1, 0, 0, 24)
+                optBtn.ZIndex                 = 11
+                optBtn.Parent                 = popup
+                corner(optBtn, 4)
+
+                optBtn.MouseEnter:Connect(function()
+                    tw(optBtn, {BackgroundTransparency = 0.3, TextColor3 = T.Text}, 0.1)
+                end)
+                optBtn.MouseLeave:Connect(function()
+                    local col = optBtn.Text == selected and T.Accent or T.TextDim
+                    tw(optBtn, {BackgroundTransparency = 1, TextColor3 = col}, 0.1)
+                end)
+                optBtn.MouseButton1Click:Connect(function()
+                    selected   = opt
+                    dropLbl.Text = opt
+                    -- Update option colors
+                    for _, child in ipairs(popup:GetChildren()) do
+                        if child:IsA("TextButton") then
+                            tw(child, {TextColor3 = child.Text == selected and T.Accent or T.TextDim}, 0.1)
+                        end
+                    end
+                    closePopup()
+                    if dopts.Callback then dopts.Callback(opt) end
+                end)
+            end
+
+            -- Hit area on the dropBtn frame to open/close
+            local hit = Instance.new("TextButton")
+            hit.Size               = UDim2.new(1, 0, 1, 0)
+            hit.BackgroundTransparency = 1
+            hit.Text               = ""
+            hit.ZIndex             = 7
+            hit.Parent             = dropBtn
+            hit.MouseButton1Click:Connect(function()
+                isOpen = not isOpen
+                popup.Visible = isOpen
+                tw(arrow, {Rotation = isOpen and 180 or 0}, 0.15)
+                if isOpen then
+                    tw(dropSt, {Color = T.Accent, Transparency = 0.65}, 0.15)
+                else
+                    tw(dropSt, {Color = Color3.fromRGB(255, 255, 255), Transparency = 0.9}, 0.15)
+                end
+            end)
+        end
+
+        -- TextInput ───────────────────────────────────────────
+        function Sec:NewInput(iopts)
+            local wrap = Instance.new("Frame")
+            wrap.Size                   = UDim2.new(1, 0, 0, 52)
+            wrap.BackgroundTransparency = 1
+            wrap.LayoutOrder            = elemN.v; elemN.v += 1
+            wrap.Parent                 = secFrame
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Text                   = iopts.Title or "Input"
+            lbl.Font                   = T.FontReg
+            lbl.TextSize               = 13
+            lbl.TextColor3             = T.Text
+            lbl.BackgroundTransparency = 1
+            lbl.Size                   = UDim2.new(1, 0, 0, 18)
+            lbl.TextXAlignment         = Enum.TextXAlignment.Left
+            lbl.Parent                 = wrap
+
+            local box = Instance.new("TextBox")
+            box.Size               = UDim2.new(1, 0, 0, 28)
+            box.Position           = UDim2.new(0, 0, 0, 22)
+            box.BackgroundColor3   = T.BG2
+            box.BorderSizePixel    = 0
+            box.PlaceholderText    = iopts.Placeholder or ""
+            box.PlaceholderColor3  = T.Muted
+            box.Text               = iopts.Default or ""
+            box.Font               = T.FontReg
+            box.TextSize           = 12
+            box.TextColor3         = T.Text
+            box.ClearTextOnFocus   = iopts.ClearOnFocus ~= false
+            box.Parent             = wrap
+            corner(box, 6)
+            local boxSt = stroke(box, Color3.fromRGB(255, 255, 255), 0.9)
+            padding(box, 0, 8, 0, 8)
+
+            box.Focused:Connect(function()
+                tw(boxSt, {Color = T.Accent, Transparency = 0.60}, 0.15)
+            end)
+            box.FocusLost:Connect(function(entered)
+                tw(boxSt, {Color = Color3.fromRGB(255, 255, 255), Transparency = 0.9}, 0.15)
+                if iopts.Callback then iopts.Callback(box.Text, entered) end
+            end)
+        end
+
+        -- Keybind ─────────────────────────────────────────────
+        function Sec:NewKeybind(kopts)
+            local row = Instance.new("Frame")
+            row.Size                   = UDim2.new(1, 0, 0, 30)
+            row.BackgroundTransparency = 1
+            row.LayoutOrder            = elemN.v; elemN.v += 1
+            row.Parent                 = secFrame
+
+            local lbl = Instance.new("TextLabel")
+            lbl.Text                   = kopts.Title or "Keybind"
+            lbl.Font                   = T.FontReg
+            lbl.TextSize               = 13
+            lbl.TextColor3             = T.Text
+            lbl.BackgroundTransparency = 1
+            lbl.Size                   = UDim2.new(1, -72, 1, 0)
+            lbl.TextXAlignment         = Enum.TextXAlignment.Left
+            lbl.Parent                 = row
+
+            local bound    = kopts.Default or Enum.KeyCode.Unknown
+            local listening = false
+
+            local keyName = tostring(bound):gsub("Enum.KeyCode.", "")
+            local keyBtn  = Instance.new("TextButton")
+            keyBtn.Size             = UDim2.new(0, 62, 0, 22)
+            keyBtn.Position         = UDim2.new(1, -62, 0.5, -11)
+            keyBtn.BackgroundColor3 = T.BG2
+            keyBtn.BorderSizePixel  = 0
+            keyBtn.AutoButtonColor  = false
+            keyBtn.Text             = keyName
+            keyBtn.Font             = T.FontReg
+            keyBtn.TextSize         = 11
+            keyBtn.TextColor3       = T.Accent
+            keyBtn.Parent           = row
+            corner(keyBtn, 4)
+            stroke(keyBtn, T.Accent, 0.75)
+
+            keyBtn.MouseButton1Click:Connect(function()
+                if listening then return end
+                listening = true
+                keyBtn.Text      = "..."
+                keyBtn.TextColor3 = T.TextDim
+            end)
+
+            UIS.InputBegan:Connect(function(i, gpe)
+                if not listening then return end
+                if i.UserInputType == Enum.UserInputType.Keyboard then
+                    listening         = false
+                    bound             = i.KeyCode
+                    keyBtn.Text       = tostring(bound):gsub("Enum.KeyCode.", "")
+                    keyBtn.TextColor3 = T.Accent
+                    if kopts.Callback then kopts.Callback(bound) end
+                end
             end)
         end
 
@@ -726,7 +979,6 @@ function Phantom:Notify(nopts)
     mLbl.ZIndex                 = 21
     mLbl.Parent                 = notif
 
-    -- Slide up from bottom-right
     tw(notif, {Position = UDim2.new(1, -252, 1, -74), BackgroundTransparency = 0}, 0.38, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
     task.delay(nopts.Duration or 3, function()
         tw(notif, {Position = UDim2.new(1, -252, 1, 10), BackgroundTransparency = 1}, 0.28, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
