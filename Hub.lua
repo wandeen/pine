@@ -165,7 +165,7 @@ if GameName ~= "Unknown" then
     end
 
 else
-    local UnkTab = Hub:NewTab({ Title = "Unknown Game" })
+    local UnkTab = Hub:NewTab({ Title = "Unknown Game", Icon = "rbxassetid://3926305904" })
     local UnkSec = UnkTab:NewSection({ Position = "Left", Title = "Info" })
     UnkSec:NewLabel("No scripts for this game yet.")
     UnkSec:NewLabel("PlaceId: " .. tostring(PlaceId))

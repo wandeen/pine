@@ -25,7 +25,7 @@ Phantom.Theme = {
     Muted       = Color3.fromRGB(100, 100, 100),
     Off         = Color3.fromRGB(40,  40,  40),
     Danger      = Color3.fromRGB(255, 65,  65),
-    BGTrans     = 0.10,
+    BGTrans     = 0.28,
     Font        = Enum.Font.GothamBold,
     FontReg     = Enum.Font.Gotham,
 }
@@ -423,20 +423,18 @@ function Phantom:SetProfile()
     nameLbl.TextXAlignment         = Enum.TextXAlignment.Center
     nameLbl.Parent                 = profileFrame
 
-    -- @username (if differs from display name)
-    if lp.Name ~= lp.DisplayName then
-        local userLbl = Instance.new("TextLabel")
-        userLbl.Text                   = "@" .. lp.Name
-        userLbl.Font                   = T.FontReg
-        userLbl.TextSize               = 10
-        userLbl.TextColor3             = T.Muted
-        userLbl.BackgroundTransparency = 1
-        userLbl.Size                   = UDim2.new(1, 0, 0, 12)
-        userLbl.Position               = UDim2.new(0, 0, 0, 65)
-        userLbl.TextXAlignment         = Enum.TextXAlignment.Center
-        userLbl.Parent                 = profileFrame
-        profileFrame.Size = UDim2.new(1, 0, 0, 88)
-    end
+    -- @username (always shown)
+    local userLbl = Instance.new("TextLabel")
+    userLbl.Text                   = "@" .. lp.Name
+    userLbl.Font                   = T.FontReg
+    userLbl.TextSize               = 10
+    userLbl.TextColor3             = T.Muted
+    userLbl.BackgroundTransparency = 1
+    userLbl.Size                   = UDim2.new(1, 0, 0, 12)
+    userLbl.Position               = UDim2.new(0, 0, 0, 65)
+    userLbl.TextXAlignment         = Enum.TextXAlignment.Center
+    userLbl.Parent                 = profileFrame
+    profileFrame.Size              = UDim2.new(1, 0, 0, 88)
 
     -- Divider below profile
     local div = Instance.new("Frame")
