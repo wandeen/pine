@@ -29,6 +29,40 @@ local Hub = Phantom.new({
 })
 
 Hub:SetProfile()
+Hub._win.BackgroundTransparency = 0.05  -- 95% opacity by default
+-- Initialize SettingsManager (auto-save/load)
+local SettingsManager = require(script.Parent.SettingsManager)
+local SM = SettingsManager.new(Hub, "phantom")
+
+-- Register Walk Speed persistence
+SM:Register("WalkSpeed", 
+    function() return _G.PhantomWalkSpeed or 16 end,
+    function(v) 
+        local hum = getHum()
+        if hum then hum.WalkSpeed = v end
+        _G.PhantomWalkSpeed = v
+    end
+)
+
+-- Register Jump Power persistence  
+SM:Register("JumpPower",
+    function() return _G.PhantomJumpPower or 7 end,
+    function(v)
+        local hum = getHum()
+        if hum then hum.JumpPower = v end
+        _G.PhantomJumpPower = v
+    end
+)
+
+-- Register Fly Speed persistence
+SM:Register("FlySpeed",
+    function() return _flySpeed end,
+    function(v) _flySpeed = v end
+)
+
+-- Auto-load on startup and auto-apply on respawn
+SM:Load()
+SM:StartAutoApply()
 
 -- ════════════════════════════════════════════════════════════════
 --  UNIVERSAL TAB  (first tab → opens by default)
@@ -63,6 +97,7 @@ UniPlayer:NewSlider({
     Callback = function(v)
         local hum = getHum()
         if hum then hum.WalkSpeed = v end
+        _G.PhantomWalkSpeed = v
     end,
 })
 
@@ -75,6 +110,7 @@ UniPlayer:NewSlider({
     Callback = function(v)
         local hum = getHum()
         if hum then hum.JumpPower = v end
+         _G.PhantomWalkSpeed = v
     end,
 })
 
@@ -180,9 +216,8 @@ UniMove:NewToggle({
 })
 
 -- ── No Clip ───────────────────────────────────────────────────
--- Disables character collision every physics step.
--- Enable Fly at the same time to avoid falling through the floor.
-local _noclipConn, _noclipCharConn
+-- Disables character collision every physics step. Works standalone (no Fly required).
+local _noclipConn, _noclipCharConn, _noclipHL
 
 local function setCollision(char, state)
     if not char then return end
@@ -193,21 +228,41 @@ local function setCollision(char, state)
     end
 end
 
+local function applyNoclipHighlight(char)
+    pcall(function() if _noclipHL then _noclipHL:Destroy() end end)
+    _noclipHL = nil
+    if not char then return end
+    local hl                  = Instance.new("Highlight")
+    hl.Adornee                = char
+    hl.FillColor              = Color3.fromRGB(138, 43, 226)
+    hl.FillTransparency       = 0.75
+    hl.OutlineColor           = Color3.fromRGB(180, 100, 255)
+    hl.OutlineTransparency    = 0.3
+    hl.DepthMode              = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent                 = workspace
+    _noclipHL = hl
+end
+
 UniMove:NewToggle({
-    Title    = "No Clip  (use with Fly)",
+    Title    = "No Clip",
     Default  = false,
     Callback = function(v)
         if _noclipConn     then _noclipConn:Disconnect();     _noclipConn     = nil end
         if _noclipCharConn then _noclipCharConn:Disconnect(); _noclipCharConn = nil end
+        pcall(function() if _noclipHL then _noclipHL:Destroy() end end)
+        _noclipHL = nil
 
         if v then
             setCollision(getChar(), false)
+            applyNoclipHighlight(getChar())
             -- Re-apply on respawn
             _noclipCharConn = LocalPlayer.CharacterAdded:Connect(function(char)
                 task.wait(0.5)
+                pcall(function() if _noclipHL then _noclipHL:Destroy() end end)
                 setCollision(char, false)
+                applyNoclipHighlight(char)
             end)
-            -- Keep disabling every step (games may reset it server-side)
+            -- Keep disabling every step (games may reset CanCollide server-side)
             _noclipConn = RunService.Stepped:Connect(function()
                 local char = getChar()
                 if not char then return end
@@ -314,6 +369,125 @@ UniUtil:NewSlider({
     Default  = 14,
     Callback = function(v)
         Lighting.ClockTime = v
+    end,
+})
+
+UniUtil:NewSeparator()
+
+-- ── Auto Rejoin ────────────────────────────────────────────────
+-- Detects kick via CoreGui prompt overlay and teleports back after 3s.
+local _autoRejoinActive = false
+local _autoRejoinConn
+
+UniUtil:NewToggle({
+    Title    = "Auto Rejoin",
+    Default  = false,
+    Callback = function(v)
+        _autoRejoinActive = v
+        if _autoRejoinConn then _autoRejoinConn:Disconnect(); _autoRejoinConn = nil end
+        if not v then return end
+        task.spawn(function()
+            pcall(function()
+                local CoreGui   = game:GetService("CoreGui")
+                local TeleSvc   = game:GetService("TeleportService")
+                local promptGui = CoreGui:WaitForChild("RobloxPromptGui", 10)
+                if not promptGui then return end
+                local overlay = promptGui:WaitForChild("promptOverlay", 10)
+                if not overlay then return end
+                _autoRejoinConn = overlay.ChildAdded:Connect(function()
+                    if not _autoRejoinActive then return end
+                    for i = 3, 1, -1 do
+                        Hub:Notify({ Title = "Auto Rejoin", Message = "Rejoining in " .. i .. "s...", Duration = 1 })
+                        task.wait(1)
+                    end
+                    pcall(function() TeleSvc:Teleport(PlaceId, LocalPlayer) end)
+                end)
+            end)
+        end)
+    end,
+})
+
+UniUtil:NewSeparator()
+
+-- ── Teleport to Player ─────────────────────────────────────────
+local _tpTarget = ""
+
+UniUtil:NewInput({
+    Title       = "Teleport to Player",
+    Placeholder = "Username or display name...",
+    Callback    = function(text) _tpTarget = text end,
+})
+
+UniUtil:NewButton({
+    Title    = "Teleport →",
+    Callback = function()
+        local target = _tpTarget:lower()
+        if target == "" then
+            Hub:Notify({ Title = "Teleport", Message = "Enter a player name first", Duration = 2 })
+            return
+        end
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                local matchName = plr.Name:lower():find(target, 1, true)
+                local matchDisp = plr.DisplayName:lower():find(target, 1, true)
+                if matchName or matchDisp then
+                    local char  = getChar()
+                    local tChar = plr.Character
+                    local hrp   = char  and char:FindFirstChild("HumanoidRootPart")
+                    local tHrp  = tChar and tChar:FindFirstChild("HumanoidRootPart")
+                    if hrp and tHrp then
+                        hrp.CFrame = tHrp.CFrame + Vector3.new(0, 3, 0)
+                        Hub:Notify({ Title = "Teleport", Message = "→ " .. plr.Name, Duration = 2 })
+                    else
+                        Hub:Notify({ Title = "Teleport", Message = plr.Name .. " has no character", Duration = 2 })
+                    end
+                    return
+                end
+            end
+        end
+        Hub:Notify({ Title = "Teleport", Message = "Player not found: " .. _tpTarget, Duration = 2 })
+    end,
+})
+
+UniUtil:NewSeparator()
+
+-- ── Server Hop ─────────────────────────────────────────────────
+-- Fetches a public server list and joins a random one with open slots.
+UniUtil:NewButton({
+    Title    = "Server Hop",
+    Callback = function()
+        Hub:Notify({ Title = "Server Hop", Message = "Searching for servers...", Duration = 3 })
+        task.spawn(function()
+            pcall(function()
+                local HS      = game:GetService("HttpService")
+                local TeleSvc = game:GetService("TeleportService")
+                local url     = "https://games.roblox.com/v1/games/" .. PlaceId
+                              .. "/servers/Public?sortOrder=Asc&limit=100"
+                local ok, resp = pcall(function() return game:HttpGet(url) end)
+                if not ok then
+                    Hub:Notify({ Title = "Server Hop", Message = "HttpGet blocked by executor", Duration = 3 })
+                    return
+                end
+                local ok2, data = pcall(function() return HS:JSONDecode(resp) end)
+                if not ok2 or not data or not data.data then
+                    Hub:Notify({ Title = "Server Hop", Message = "Failed to parse server list", Duration = 3 })
+                    return
+                end
+                local candidates = {}
+                for _, srv in ipairs(data.data) do
+                    if srv.playing < srv.maxPlayers then
+                        table.insert(candidates, srv.id)
+                    end
+                end
+                if #candidates == 0 then
+                    Hub:Notify({ Title = "Server Hop", Message = "No open servers found", Duration = 3 })
+                    return
+                end
+                local target = candidates[math.random(1, #candidates)]
+                Hub:Notify({ Title = "Server Hop", Message = "Joining server...", Duration = 3 })
+                TeleSvc:TeleportToPlaceInstance(PlaceId, target, LocalPlayer)
+            end)
+        end)
     end,
 })
 
@@ -472,6 +646,152 @@ UniESP:NewColorPicker({
     end,
 })
 
+UniESP:NewSeparator()
+
+-- ── ESP Lines (Drawing API — line from screen bottom to player) ──
+local _espLinesActive  = false
+local _espLinesConn
+local _espLineDrawings = {}  -- [player] = Drawing.Line
+
+UniESP:NewToggle({
+    Title    = "ESP Lines",
+    Default  = false,
+    Callback = function(v)
+        _espLinesActive = v
+        if not v then
+            if _espLinesConn then _espLinesConn:Disconnect(); _espLinesConn = nil end
+            for _, ln in pairs(_espLineDrawings) do pcall(function() ln:Remove() end) end
+            _espLineDrawings = {}
+            return
+        end
+    if not Drawing then 
+        Hub:Notify({Title="ESP Lines", Message="Drawing API not supported", Duration=3})
+        return 
+    end
+        _espLinesConn = RunService.RenderStepped:Connect(function()
+            local cam = workspace.CurrentCamera
+            local cx  = cam.ViewportSize.X / 2
+            local cy  = cam.ViewportSize.Y
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    local char = plr.Character
+                    local hrp  = char and char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        local sp, vis = cam:WorldToViewportPoint(hrp.Position)
+                        if not _espLineDrawings[plr] then
+                            local ln       = Drawing.new("Line")
+                            ln.Thickness   = 1
+                            ln.Color       = _espFillColor
+                            ln.Visible     = false
+                            _espLineDrawings[plr] = ln
+                        end
+                        local ln   = _espLineDrawings[plr]
+                        ln.From    = Vector2.new(cx, cy)
+                        ln.To      = Vector2.new(sp.X, sp.Y)
+                        ln.Color   = _espFillColor
+                        ln.Visible = vis and (sp.Z > 0)
+                    elseif _espLineDrawings[plr] then
+                        _espLineDrawings[plr].Visible = false
+                    end
+                end
+            end
+            -- Clean up lines for gone players
+            for plr, ln in pairs(_espLineDrawings) do
+                if not Players:FindFirstChild(plr.Name) then
+                    pcall(function() ln:Remove() end)
+                    _espLineDrawings[plr] = nil
+                end
+            end
+        end)
+    end,
+})
+
+-- ── Skeleton ESP (bone lines via Drawing API) ───────────────────
+local _skelActive   = false
+local _skelConn
+local _skelDrawings = {}  -- [player] = {Drawing.Line, ...}
+
+local R6_LINKS = {
+    {"Head", "Torso"},
+    {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
+    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
+}
+local R15_LINKS = {
+    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
+    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
+    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
+    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
+    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+}
+
+local function clearSkelPlayer(plr)
+    if _skelDrawings[plr] then
+        for _, ln in ipairs(_skelDrawings[plr]) do pcall(function() ln:Remove() end) end
+        _skelDrawings[plr] = nil
+    end
+end
+
+UniESP:NewToggle({
+    Title    = "Skeleton ESP",
+    Default  = false,
+    Callback = function(v)
+        _skelActive = v
+        if not v then
+            if _skelConn then _skelConn:Disconnect(); _skelConn = nil end
+            for plr in pairs(_skelDrawings) do clearSkelPlayer(plr) end
+            return
+            end
+            if not Drawing then 
+        Hub:Notify({Title="Skeleton ESP", Message="Drawing API not supported", Duration=3})
+             return 
+         end
+        _skelConn = RunService.RenderStepped:Connect(function()
+            local cam = workspace.CurrentCamera
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr ~= LocalPlayer then
+                    local char = plr.Character
+                    if not char then clearSkelPlayer(plr) else
+                        local links = char:FindFirstChild("UpperTorso") and R15_LINKS or R6_LINKS
+                        if not _skelDrawings[plr] or #_skelDrawings[plr] ~= #links then
+                            clearSkelPlayer(plr)
+                            local pool = {}
+                            for _ = 1, #links do
+                                local ln     = Drawing.new("Line")
+                                ln.Thickness = 1
+                                ln.Color     = _espFillColor
+                                ln.Visible   = false
+                                table.insert(pool, ln)
+                            end
+                            _skelDrawings[plr] = pool
+                        end
+                        for i, link in ipairs(links) do
+                            local p1 = char:FindFirstChild(link[1])
+                            local p2 = char:FindFirstChild(link[2])
+                            local ln = _skelDrawings[plr][i]
+                            if p1 and p2 then
+                                local s1, v1 = cam:WorldToViewportPoint(p1.Position)
+                                local s2, v2 = cam:WorldToViewportPoint(p2.Position)
+                                ln.From    = Vector2.new(s1.X, s1.Y)
+                                ln.To      = Vector2.new(s2.X, s2.Y)
+                                ln.Color   = _espFillColor
+                                ln.Visible = v1 and v2 and (s1.Z > 0)
+                            else
+                                ln.Visible = false
+                            end
+                        end
+                    end
+                end
+            end
+            -- Clean up drawings for disconnected players
+            for plr in pairs(_skelDrawings) do
+                if not Players:FindFirstChild(plr.Name) then
+                    clearSkelPlayer(plr)
+                end
+            end
+        end)
+    end,
+})
+
 -- ════════════════════════════════════════════════════════════════
 --  SETTINGS TAB  (hidden from sidebar; open via ⚙ topbar button)
 -- ════════════════════════════════════════════════════════════════
@@ -489,7 +809,7 @@ AppearSec:NewSlider({
     Title    = "Window Opacity %",
     Min      = 30,
     Max      = 100,
-    Default  = 85,
+    Default  = 95,
     Callback = function(v)
         Hub._win.BackgroundTransparency = 1 - (v / 100)
     end,
@@ -498,14 +818,14 @@ AppearSec:NewSlider({
 DataSec:NewButton({
     Title    = "Save Config",
     Callback = function()
-        Hub:SaveConfig("phantom")
+        SM:Save()
         Hub:Notify({ Title = "Config", Message = "Saved successfully", Duration = 2 })
     end,
 })
 DataSec:NewButton({
-    Title    = "Load Config",
+    Title    = "Load Config", 
     Callback = function()
-        Hub:LoadConfig("phantom")
+        SM:Load()
         Hub:Notify({ Title = "Config", Message = "Loaded and applied", Duration = 2 })
     end,
 })

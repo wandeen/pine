@@ -209,7 +209,7 @@ function Phantom.new(opts)
     win.ZIndex                 = 1
     win.Parent                 = gui
     corner(win, 12)
-    stroke(win, T.Accent, 0.80)  -- intentional purple border, not the faint-white artifact
+    stroke(win, T.Accent, 0.92)  -- very subtle purple glow border
 
     local winScale  = Instance.new("UIScale")
     winScale.Scale  = 0.85
@@ -269,7 +269,58 @@ function Phantom.new(opts)
 
     -- ── Topbar right-side controls (right→left: X, -, Settings, Log) ──
     local minBtn         = makePillBtn(topBar, -68, "-", T.Accent, Color3.new(1,1,1), T)
-    local closeBtn       = makePillBtn(topBar, -36, "X", T.Danger, Color3.new(1,1,1), T)
+
+    -- Better X button: circular frame with two rotated lines + hover spin animation
+    local closeFrame = Instance.new("Frame")
+    closeFrame.Size                   = UDim2.new(0, 26, 0, 26)
+    closeFrame.Position               = UDim2.new(1, -36, 0.5, -13)
+    closeFrame.BackgroundColor3       = T.Danger
+    closeFrame.BackgroundTransparency = 1
+    closeFrame.BorderSizePixel        = 0
+    closeFrame.ZIndex                 = 3
+    closeFrame.Parent                 = topBar
+    corner(closeFrame, 13)  -- full circle
+
+    local xLine1 = Instance.new("Frame")
+    xLine1.Size             = UDim2.new(0, 12, 0, 2)
+    xLine1.AnchorPoint      = Vector2.new(0.5, 0.5)
+    xLine1.Position         = UDim2.new(0.5, 0, 0.5, 0)
+    xLine1.Rotation         = 45
+    xLine1.BackgroundColor3 = T.Muted
+    xLine1.BorderSizePixel  = 0
+    xLine1.ZIndex           = 4
+    xLine1.Parent           = closeFrame
+    corner(xLine1, 1)
+
+    local xLine2 = Instance.new("Frame")
+    xLine2.Size             = UDim2.new(0, 12, 0, 2)
+    xLine2.AnchorPoint      = Vector2.new(0.5, 0.5)
+    xLine2.Position         = UDim2.new(0.5, 0, 0.5, 0)
+    xLine2.Rotation         = -45
+    xLine2.BackgroundColor3 = T.Muted
+    xLine2.BorderSizePixel  = 0
+    xLine2.ZIndex           = 4
+    xLine2.Parent           = closeFrame
+    corner(xLine2, 1)
+
+    local closeBtn = Instance.new("TextButton")
+    closeBtn.Text                   = ""
+    closeBtn.BackgroundTransparency = 1
+    closeBtn.Size                   = UDim2.new(1, 0, 1, 0)
+    closeBtn.AutoButtonColor        = false
+    closeBtn.ZIndex                 = 5
+    closeBtn.Parent                 = closeFrame
+
+    closeBtn.MouseEnter:Connect(function()
+        tw(closeFrame, {BackgroundTransparency = 0.15, Rotation = 90}, 0.2)
+        tw(xLine1, {BackgroundColor3 = Color3.new(1, 1, 1)}, 0.14)
+        tw(xLine2, {BackgroundColor3 = Color3.new(1, 1, 1)}, 0.14)
+    end)
+    closeBtn.MouseLeave:Connect(function()
+        tw(closeFrame, {BackgroundTransparency = 1, Rotation = 0}, 0.2)
+        tw(xLine1, {BackgroundColor3 = T.Muted}, 0.14)
+        tw(xLine2, {BackgroundColor3 = T.Muted}, 0.14)
+    end)
     local settingsTopBtn = makeIconBtn(topBar, -102, "⚙", T)
     local logTopBtn      = makeIconBtn(topBar, -134, "≡", T)
 
@@ -290,7 +341,7 @@ function Phantom.new(opts)
     searchInline.Parent            = topBar
     corner(searchInline, 5)
     padding(searchInline, 0, 6, 0, 8)
-    stroke(searchInline, T.Accent, 0.75)
+    stroke(searchInline, T.Accent, 0.9)
 
     -- ── Sidebar ───────────────────────────────────────────────
     local sidebar = Instance.new("Frame")
@@ -610,7 +661,7 @@ function Phantom.new(opts)
     searchBox.Parent              = searchBar
     corner(searchBox, 6)
     padding(searchBox, 0, 8, 0, 8)
-    stroke(searchBox, T.Accent, 0.65)
+    stroke(searchBox, T.Accent, 0.9)
 
     local searchResults = Instance.new("ScrollingFrame")
     searchResults.Size                  = UDim2.new(1, 0, 1, -40)
@@ -1299,13 +1350,13 @@ function Phantom:NewTab(opts)
             corner(fill, 4)
 
             local thumb = Instance.new("Frame")
-            thumb.Size             = UDim2.new(0, 16, 0, 16)
+            thumb.Size             = UDim2.new(0, 12, 0, 12)
             thumb.AnchorPoint      = Vector2.new(1, 0.5)
             thumb.Position         = UDim2.new(1, 0, 0.5, 0)
             thumb.BackgroundColor3 = Color3.new(1, 1, 1)
             thumb.BorderSizePixel  = 0
             thumb.Parent           = fill
-            corner(thumb, 8)
+            corner(thumb, 6)
 
             local function setVal(v, fire)
                 v = math.clamp(math.round(v), mn, mx)
@@ -1458,7 +1509,7 @@ function Phantom:NewTab(opts)
             popup.Visible          = false
             popup.Parent           = hub._gui
             corner(popup, 6)
-            stroke(popup, Color3.fromRGB(255, 255, 255), 0.88)
+            stroke(popup, Color3.fromRGB(255, 255, 255), 0.9)
             listLayout(popup, 2)
             padding(popup, 3, 3, 3, 3)
 
@@ -1611,7 +1662,7 @@ function Phantom:NewTab(opts)
             keyBtn.TextColor3       = T.Accent
             keyBtn.Parent           = row
             corner(keyBtn, 4)
-            stroke(keyBtn, T.Accent, 0.75)
+            stroke(keyBtn, T.Accent, 0.9)
 
             cfgReg(kopts.Title or "Keybind", keyBtn.Text, function(v)
                 local ok, kc = pcall(function() return Enum.KeyCode[v] end)
@@ -1628,6 +1679,7 @@ function Phantom:NewTab(opts)
             end)
             UIS.InputBegan:Connect(function(i, gpe)
                 if not listening then return end
+                if i.KeyCode == hub.Keybind then return end  -- don't bind the hub toggle key
                 if i.UserInputType == Enum.UserInputType.Keyboard then
                     listening         = false
                     bound             = i.KeyCode
@@ -1672,7 +1724,7 @@ function Phantom:NewTab(opts)
             swatch.BorderSizePixel  = 0
             swatch.Parent           = wrap
             corner(swatch, 4)
-            stroke(swatch, Color3.fromRGB(255,255,255), 0.82)
+            stroke(swatch, Color3.fromRGB(255,255,255), 0.9)
 
             -- SV square: base (hue color) + white saturation overlay + black value overlay
             local svBox = Instance.new("Frame")
