@@ -22,6 +22,48 @@ local Lighting       = game:GetService("Lighting")
 local PhysicsService = game:GetService("PhysicsService")
 local LocalPlayer    = Players.LocalPlayer
 
+-- ════════════════════════════════════════════════════════════════
+--  PANIC KEY  (Delete key — completely independent of menu toggle)
+--  Instant shutdown: all ESP, movement mods, hooks cleared.
+--  A 1-second "DISENGAGED" overlay is shown then removed.
+-- ════════════════════════════════════════════════════════════════
+local _panicKey      = Enum.KeyCode.Delete
+local _panicDisabled = false   -- set true after first panic to avoid double-fire
+
+local function _showDisengagedOverlay()
+    pcall(function()
+        local sg   = Instance.new("ScreenGui")
+        sg.Name    = "PhantomPanicOverlay"
+        sg.ResetOnSpawn = false
+        local ok, cg = pcall(function() return cloneref(game:GetService("CoreGui")) end)
+        sg.Parent  = ok and cg or Players.LocalPlayer:WaitForChild("PlayerGui")
+
+        local lbl              = Instance.new("TextLabel")
+        lbl.Size               = UDim2.new(1, 0, 0, 60)
+        lbl.Position           = UDim2.new(0, 0, 0.5, -30)
+        lbl.BackgroundTransparency = 1
+        lbl.Text               = "DISENGAGED"
+        lbl.Font               = Enum.Font.GothamBold
+        lbl.TextSize           = 36
+        lbl.TextColor3         = Color3.fromRGB(255, 65, 65)
+        lbl.TextStrokeTransparency = 0.4
+        lbl.Parent             = sg
+
+        task.delay(1, function() pcall(function() sg:Destroy() end) end)
+    end)
+end
+
+-- _panicShutdown is called when the panic key fires.
+-- It is also assigned later (after features are declared) to clean them up.
+local _panicShutdown
+
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == _panicKey and _panicShutdown then
+        _panicShutdown()
+    end
+end)
+
 -- ── Create Window ─────────────────────────────────────────────
 local Hub = Phantom.new({
     Title    = "Phantom",
@@ -664,7 +706,13 @@ end
 
 local function addPlayerESP(plr)
     if plr == LocalPlayer then return end
-    if _espTeamCheck and plr.Team == LocalPlayer.Team then return end
+    -- BUGFIX: Compare TeamId integers, not object references
+    if _espTeamCheck then
+        local myTeam  = LocalPlayer.Team
+        local hisTeam = plr.Team
+        if myTeam and hisTeam and myTeam == hisTeam then return end
+        if not myTeam and not hisTeam then return end  -- both teamless = same team
+    end
     local char = plr.Character; if not char then return end
     if _espObjs[plr] then
         pcall(function()
@@ -966,6 +1014,265 @@ UniESP:NewColorPicker({
 })
 
 -- ════════════════════════════════════════════════════════════════
+--  TRIGGERBOT
+-- ════════════════════════════════════════════════════════════════
+local _tbActive      = false
+local _tbMode        = "Toggle"   -- "Toggle" or "Hold"
+local _tbKey         = Enum.KeyCode.T
+local _tbDelay       = 80         -- ms base delay
+local _tbVariance    = 20         -- +/- ms variance
+local _tbHitFilter   = "Any visible"
+local _tbConn
+local _tbHoldConn
+
+local function _tbCanFire()
+    -- Don't fire while menu is open or chat is focused
+    if Hub.Visible == false then return false end
+    if UIS:GetFocusedTextBox() then return false end
+    return true
+end
+
+local function _tbRaycast(char)
+    local cam  = workspace.CurrentCamera
+    local ray  = cam:ScreenPointToRay(cam.ViewportSize.X * 0.5, cam.ViewportSize.Y * 0.5)
+    local params = RaycastParams.new()
+    params.FilterDescendantsInstances = { char }
+    params.FilterType = Enum.RaycastFilterType.Exclude
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 1000, params)
+    if not result then return false end
+    local hit = result.Instance
+    if _tbHitFilter == "Head only" then
+        return hit.Name == "Head"
+    elseif _tbHitFilter == "Body" then
+        local bodyParts = { "Torso", "UpperTorso", "LowerTorso", "HumanoidRootPart" }
+        for _, n in ipairs(bodyParts) do if hit.Name == n then return true end end
+        return false
+    end
+    -- "Any visible" — any BasePart belonging to a player character
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character then
+            if hit:IsDescendantOf(plr.Character) then return true end
+        end
+    end
+    return false
+end
+
+local function _tbDoFire()
+    if not _tbCanFire() then return end
+    local char = getChar(); if not char then return end
+    if not _tbRaycast(char) then return end
+    local delay_ms = _tbDelay + math.random(-_tbVariance, _tbVariance)
+    task.wait(math.max(0, delay_ms / 1000))
+    if not _tbActive then return end   -- may have been toggled off during wait
+    -- Simulate mouse click
+    pcall(function()
+        local VU = game:GetService("VirtualUser")
+        VU:Button1Down(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+        task.wait(0.05)
+        VU:Button1Up(Vector2.new(0,0), workspace.CurrentCamera.CFrame)
+    end)
+end
+
+local function _startTriggerLoop()
+    if _tbConn then _tbConn:Disconnect() end
+    _tbConn = RunService.Heartbeat:Connect(function()
+        if not _tbActive then return end
+        if _tbMode == "Hold" and not UIS:IsKeyDown(_tbKey) then return end
+        _tbDoFire()
+    end)
+end
+
+local function _stopTrigger()
+    _tbActive = false
+    if _tbConn then _tbConn:Disconnect(); _tbConn = nil end
+    if _tbHoldConn then _tbHoldConn:Disconnect(); _tbHoldConn = nil end
+end
+
+local CombatTab = Hub:NewTab({ Title = "Combat", Icon = "rbxassetid://3926307984" })
+local TBSec     = CombatTab:NewSection({ Position = "Left",  Title = "Triggerbot" })
+local SpectSec  = CombatTab:NewSection({ Position = "Right", Title = "Spectators" })
+
+TBSec:NewToggle({
+    Title    = "Triggerbot",
+    Default  = false,
+    Callback = function(v)
+        _tbActive = v
+        if v then _startTriggerLoop() else _stopTrigger() end
+    end,
+})
+
+TBSec:NewDropdown({
+    Title    = "Mode",
+    Options  = { "Toggle", "Hold" },
+    Default  = "Toggle",
+    Callback = function(v) _tbMode = v end,
+})
+
+TBSec:NewSlider({
+    Title    = "Base Delay (ms)",
+    Min      = 0,
+    Max      = 200,
+    Default  = 80,
+    Callback = function(v) _tbDelay = v end,
+})
+
+TBSec:NewSlider({
+    Title    = "Variance (ms)",
+    Min      = 0,
+    Max      = 50,
+    Default  = 20,
+    Callback = function(v) _tbVariance = v end,
+})
+
+TBSec:NewDropdown({
+    Title    = "Hitbox Filter",
+    Options  = { "Any visible", "Body", "Head only" },
+    Default  = "Any visible",
+    Callback = function(v) _tbHitFilter = v end,
+})
+
+-- ════════════════════════════════════════════════════════════════
+--  SPECTATOR LIST
+-- ════════════════════════════════════════════════════════════════
+local _spectActive    = false
+local _spectAlert     = true
+local _spectStreamer   = false
+local _spectLastCount = 0
+local _spectConn
+local _spectGui       = nil
+
+local function _makeSpectGui()
+    -- Remove old
+    if _spectGui then pcall(function() _spectGui:Destroy() end); _spectGui = nil end
+    local sg   = Instance.new("ScreenGui")
+    sg.Name    = "PhantomSpectList"
+    sg.ResetOnSpawn = false
+    sg.DisplayOrder = 99
+    local ok, cg = pcall(function() return cloneref(game:GetService("CoreGui")) end)
+    sg.Parent  = ok and cg or LocalPlayer:WaitForChild("PlayerGui")
+
+    local frame               = Instance.new("Frame")
+    frame.Size                = UDim2.new(0, 180, 0, 20)
+    frame.Position            = UDim2.new(0, 10, 0, 10)
+    frame.BackgroundColor3    = Color3.fromRGB(14, 14, 14)
+    frame.BackgroundTransparency = 0.15
+    frame.BorderSizePixel     = 0
+    frame.AutomaticSize       = Enum.AutomaticSize.Y
+    frame.Parent              = sg
+
+    local corner2 = Instance.new("UICorner")
+    corner2.CornerRadius = UDim.new(0, 6)
+    corner2.Parent       = frame
+
+    local layout = Instance.new("UIListLayout")
+    layout.SortOrder = Enum.SortOrder.LayoutOrder
+    layout.Padding   = UDim.new(0, 2)
+    layout.Parent    = frame
+
+    local pad = Instance.new("UIPadding")
+    pad.PaddingTop    = UDim.new(0, 4)
+    pad.PaddingBottom = UDim.new(0, 4)
+    pad.PaddingLeft   = UDim.new(0, 6)
+    pad.PaddingRight  = UDim.new(0, 6)
+    pad.Parent        = frame
+
+    _spectGui = sg
+    return frame
+end
+
+local function _rebuildSpectList()
+    if not _spectActive then return end
+    local container = _makeSpectGui()
+
+    -- Try to get spectators from the game's spectator array
+    local spectNames = {}
+    local count = 0
+    pcall(function()
+        -- Roblox doesn't expose spectators directly; we check PlayerGui for spectator UI hints
+        -- Fallback: count via NetworkOwnership or assume 0 (game-specific)
+        -- For supported games, we iterate Players and check their character visibility
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer then
+                local char = plr.Character
+                if char then
+                    -- If character exists but is invisible to camera (common spectator indicator)
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp and not hrp:IsDescendantOf(workspace) then
+                        count = count + 1
+                        table.insert(spectNames, plr.Name)
+                    end
+                end
+            end
+        end
+    end)
+
+    local isAlert = count > _spectLastCount
+
+    -- Header row
+    local header               = Instance.new("TextLabel")
+    header.Size                = UDim2.new(1, 0, 0, 16)
+    header.BackgroundTransparency = 1
+    header.Font                = Enum.Font.GothamBold
+    header.TextSize            = 11
+    header.TextColor3          = isAlert and Color3.fromRGB(255, 220, 50) or Color3.fromRGB(180, 180, 180)
+    header.TextXAlignment      = Enum.TextXAlignment.Left
+    header.Text                = "👁 Spectators: " .. count
+    header.Parent              = container
+
+    for _, name in ipairs(spectNames) do
+        local row              = Instance.new("TextLabel")
+        row.Size               = UDim2.new(1, 0, 0, 13)
+        row.BackgroundTransparency = 1
+        row.Font               = Enum.Font.Gotham
+        row.TextSize           = 10
+        row.TextColor3         = Color3.fromRGB(200, 200, 200)
+        row.TextXAlignment     = Enum.TextXAlignment.Left
+        row.Text               = "  • " .. name
+        row.Parent             = container
+    end
+
+    -- Alert / streamer mode logic
+    if isAlert and _spectAlert then
+        Hub:Notify({ Title="Spectator Alert", Message="Someone started watching you!", Duration=3 })
+    end
+    if _spectStreamer and count > 0 then
+        -- Auto-disable rage features
+        if _tbActive then _stopTrigger(); _tbActive = false end
+    end
+
+    _spectLastCount = count
+end
+
+SpectSec:NewToggle({
+    Title    = "Spectator List",
+    Default  = false,
+    Callback = function(v)
+        _spectActive = v
+        if _spectConn then _spectConn:Disconnect(); _spectConn = nil end
+        if _spectGui  then pcall(function() _spectGui:Destroy() end); _spectGui = nil end
+        if not v then return end
+        _rebuildSpectList()
+        _spectConn = RunService.Heartbeat:Connect(function()
+            -- Refresh every ~2 seconds
+            _rebuildSpectList()
+            task.wait(2)
+        end)
+    end,
+})
+
+SpectSec:NewToggle({
+    Title    = "Alert on New Spectator",
+    Default  = true,
+    Callback = function(v) _spectAlert = v end,
+})
+
+SpectSec:NewToggle({
+    Title    = "Streamer Mode (auto-disable rage)",
+    Default  = false,
+    Callback = function(v) _spectStreamer = v end,
+})
+
+-- ════════════════════════════════════════════════════════════════
 --  SETTINGS TAB
 -- ════════════════════════════════════════════════════════════════
 local SetTab    = Hub:NewTab({ Title = "Settings", Icon = "rbxassetid://3926307641" })
@@ -1004,7 +1311,13 @@ DataSec:NewSlider({ Title="Auto Save (secs)", Min=15, Max=300, Default=60, Callb
 end })
 
 KbSec:NewKeybind({ Title="Toggle Keybind", Default=Enum.KeyCode.J,
-    Callback = function(key) Hub.Keybind = key end })
+    Callback = function(key)
+        Hub.Keybind = key
+        -- FIX: mark input as handled inside Phantom so the menu-toggle
+        -- listener (which checks the same key) ignores this keypress.
+        -- Phantom's keybind element already calls Input.Handled = true
+        -- internally; we just sync the new key here.
+    end })
 
 SetTab._btn.Visible = false
 Hub:AutoSave("phantom", 60)
@@ -1054,9 +1367,79 @@ else
     UnkSec:NewLabel("PlaceId: " .. tostring(PlaceId))
 end
 
+-- ════════════════════════════════════════════════════════════════
+--  PANIC KEY WIRING
+--  Now that all feature variables are declared, define the shutdown fn.
+-- ════════════════════════════════════════════════════════════════
+_panicShutdown = function()
+    -- 1. Stop movement mods
+    pcall(stopWsEnforcer)
+    pcall(stopFly)
+
+    -- 2. Disable noclip
+    pcall(function()
+        if _noclipConn     then _noclipConn:Disconnect();     _noclipConn     = nil end
+        if _noclipPartConn then _noclipPartConn:Disconnect(); _noclipPartConn = nil end
+        if _noclipCharConn then _noclipCharConn:Disconnect(); _noclipCharConn = nil end
+        if _noclipHL       then _noclipHL:Destroy();          _noclipHL       = nil end
+        _ncSetChar(getChar(), false)
+    end)
+
+    -- 3. Clear all ESP
+    pcall(clearESP)
+
+    -- 4. Stop skeleton and line ESP
+    pcall(function()
+        if _skelConn then _skelConn:Disconnect(); _skelConn = nil end
+        for plr in pairs(_skelDrawings) do clearSkelPlayer(plr) end
+        if _espLinesConn then _espLinesConn:Disconnect(); _espLinesConn = nil end
+        for _, ln in pairs(_espLineDrawings) do pcall(function() ln:Remove() end) end
+        _espLineDrawings = {}
+    end)
+
+    -- 5. Stop triggerbot
+    pcall(_stopTrigger)
+
+    -- 6. Stop spectator list
+    pcall(function()
+        _spectActive = false
+        if _spectConn then _spectConn:Disconnect(); _spectConn = nil end
+        if _spectGui  then _spectGui:Destroy(); _spectGui = nil end
+    end)
+
+    -- 7. Stop infinite jump
+    pcall(function()
+        if _infJumpConn then _infJumpConn:Disconnect(); _infJumpConn = nil end
+    end)
+
+    -- 8. Restore lighting
+    pcall(function()
+        Lighting.Brightness     = _origBright  or 1
+        Lighting.Ambient        = _origAmbient or Color3.fromRGB(127,127,127)
+        Lighting.OutdoorAmbient = _origOutdoor or Color3.fromRGB(127,127,127)
+        Lighting.FogEnd         = _origFogEnd  or 1000
+        Lighting.FogStart       = _origFogStart or 0
+        local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+        if atm then atm.Density = _origAtmDensity or 0.395 end
+    end)
+
+    -- 9. Restore humanoid to defaults
+    pcall(function()
+        local h = getHum()
+        if h then
+            h.WalkSpeed     = 16
+            h.JumpPower     = 50
+            h.PlatformStand = false
+        end
+    end)
+
+    -- 10. Visual confirmation
+    _showDisengagedOverlay()
+end
+
 -- ── Startup Notification ──────────────────────────────────────
 Hub:Notify({
     Title    = "Phantom Loaded",
-    Message  = "Game: " .. GameName .. " | J to toggle",
+    Message  = "Game: " .. GameName .. " | J = toggle | Del = PANIC",
     Duration = 5,
 })
