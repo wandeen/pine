@@ -15,11 +15,12 @@ local PlaceId  = game.PlaceId
 local GameName = Games[PlaceId] or "Unknown"
 
 -- ── Services ──────────────────────────────────────────────────
-local Players      = game:GetService("Players")
-local RunService   = game:GetService("RunService")
-local UIS          = game:GetService("UserInputService")
-local Lighting     = game:GetService("Lighting")
-local LocalPlayer  = Players.LocalPlayer
+local Players        = game:GetService("Players")
+local RunService     = game:GetService("RunService")
+local UIS            = game:GetService("UserInputService")
+local Lighting       = game:GetService("Lighting")
+local PhysicsService = game:GetService("PhysicsService")
+local LocalPlayer    = Players.LocalPlayer
 
 -- ── Create Window ─────────────────────────────────────────────
 local Hub = Phantom.new({
@@ -29,11 +30,10 @@ local Hub = Phantom.new({
 })
 
 Hub:SetProfile()
-Hub._win.BackgroundTransparency = 0.05  -- 95% opacity by default
+Hub._win.BackgroundTransparency = 0.05
 
--- ── Helpers (defined early so SM setters can use them) ────────
--- BUG FIX #2: getChar/getHum were defined after SM:Load() was called,
--- so the setters would error on nil. Moved here before SM setup.
+-- ── Helpers ───────────────────────────────────────────────────
+-- BUGFIX: declared early so SettingsManager setters can call them at load time.
 local function getChar()
     return LocalPlayer.Character
 end
@@ -42,26 +42,27 @@ local function getHum()
     return c and c:FindFirstChildOfClass("Humanoid")
 end
 
--- BUG FIX #3: _flySpeed was declared later in the file, making it nil
--- when SM:Register captured it. Declared here so closures see it.
+-- BUGFIX: declared early so the SM:Register("FlySpeed") closure captures
+-- the variable rather than nil.
 local _flySpeed = 60
 
--- ── SettingsManager (inlined – fixes BUG #1) ──────────────────
--- BUG FIX #1: require(script.Parent.SettingsManager) crashes in
--- executor context because `script` doesn't exist. SettingsManager
--- is now inlined directly so no require/loadstring is needed.
-local HS_SM = game:GetService("HttpService")
-local FILE_PREFIX = "phantom_sm_"
+-- ════════════════════════════════════════════════════════════════
+--  SETTINGS MANAGER (inlined)
+--  BUGFIX: require(script.Parent.SettingsManager) crashes in every executor
+--  because `script` is nil outside Roblox Studio.  Inlined here.
+-- ════════════════════════════════════════════════════════════════
+local _smHS     = game:GetService("HttpService")
+local _smPrefix = "phantom_sm_"
 
 local SettingsManager = {}
 SettingsManager.__index = SettingsManager
 
 function SettingsManager.new(hub, name)
-    local self       = setmetatable({}, SettingsManager)
-    self._hub        = hub
-    self._name       = name or "default"
-    self._entries    = {}
-    self._charConn   = nil
+    local self     = setmetatable({}, SettingsManager)
+    self._hub      = hub
+    self._name     = name or "default"
+    self._entries  = {}
+    self._charConn = nil
     return self
 end
 
@@ -69,14 +70,14 @@ function SettingsManager:Register(key, getter, setter)
     self._entries[key] = { get = getter, set = setter }
 end
 
-local function sm_encode(v)
+local function _smEncode(v)
     if typeof(v) == "Color3" then
-        return { __type = "Color3", r = math.round(v.R * 255), g = math.round(v.G * 255), b = math.round(v.B * 255) }
+        return { __type="Color3", r=math.round(v.R*255), g=math.round(v.G*255), b=math.round(v.B*255) }
     end
     return v
 end
 
-local function sm_decode(v)
+local function _smDecode(v)
     if type(v) == "table" and v.__type == "Color3" then
         return Color3.fromRGB(v.r or 0, v.g or 0, v.b or 0)
     end
@@ -87,84 +88,116 @@ function SettingsManager:Save()
     local data = {}
     for key, entry in pairs(self._entries) do
         local ok, val = pcall(entry.get)
-        if ok then data[key] = sm_encode(val) end
+        if ok then data[key] = _smEncode(val) end
     end
-    local ok, json = pcall(function() return HS_SM:JSONEncode(data) end)
-    if ok then
-        pcall(function() writefile(FILE_PREFIX .. self._name .. ".json", json) end)
-    end
+    local ok, json = pcall(function() return _smHS:JSONEncode(data) end)
+    if ok then pcall(function() writefile(_smPrefix .. self._name .. ".json", json) end) end
 end
 
 function SettingsManager:Load()
-    local ok, content = pcall(function()
-        return readfile(FILE_PREFIX .. self._name .. ".json")
-    end)
+    local ok, content = pcall(function() return readfile(_smPrefix .. self._name .. ".json") end)
     if not ok or not content or content == "" then return false end
-    local ok2, data = pcall(function() return HS_SM:JSONDecode(content) end)
+    local ok2, data = pcall(function() return _smHS:JSONDecode(content) end)
     if not ok2 or type(data) ~= "table" then return false end
     for key, entry in pairs(self._entries) do
-        if data[key] ~= nil then
-            pcall(function() entry.set(sm_decode(data[key])) end)
-        end
+        if data[key] ~= nil then pcall(function() entry.set(_smDecode(data[key])) end) end
     end
     return true
 end
 
 function SettingsManager:StartAutoApply()
     if self._charConn then self._charConn:Disconnect() end
-    local lp = game:GetService("Players").LocalPlayer
-    self._charConn = lp.CharacterAdded:Connect(function()
-        task.wait(1)
-        self:Load()
+    self._charConn = Players.LocalPlayer.CharacterAdded:Connect(function()
+        task.wait(1); self:Load()
     end)
 end
 
 function SettingsManager:StopAutoApply()
-    if self._charConn then
-        self._charConn:Disconnect()
-        self._charConn = nil
-    end
+    if self._charConn then self._charConn:Disconnect(); self._charConn = nil end
 end
 
--- ── Initialize SettingsManager (auto-save/load) ───────────────
+-- ── SettingsManager init ───────────────────────────────────────
 local SM = SettingsManager.new(Hub, "phantom")
 
--- Register Walk Speed persistence
 SM:Register("WalkSpeed",
     function() return _G.PhantomWalkSpeed or 16 end,
-    function(v)
-        local hum = getHum()
-        if hum then hum.WalkSpeed = v end
-        _G.PhantomWalkSpeed = v
-    end
+    function(v) _G.PhantomWalkSpeed = v; local h = getHum(); if h then h.WalkSpeed = v end end
 )
-
--- Register Jump Power persistence
 SM:Register("JumpPower",
     function() return _G.PhantomJumpPower or 7 end,
-    function(v)
-        local hum = getHum()
-        if hum then hum.JumpPower = v end
-        _G.PhantomJumpPower = v
-    end
+    -- BUGFIX: was incorrectly writing to _G.PhantomWalkSpeed
+    function(v) _G.PhantomJumpPower = v; local h = getHum(); if h then h.JumpPower = v end end
 )
-
--- Register Fly Speed persistence
 SM:Register("FlySpeed",
     function() return _flySpeed end,
     function(v) _flySpeed = v end
 )
 
--- Auto-load on startup and auto-apply on respawn
 SM:Load()
 SM:StartAutoApply()
 
 -- ════════════════════════════════════════════════════════════════
---  UNIVERSAL TAB  (first tab → opens by default)
+--  NOCLIP COLLISION GROUP
+--  FIX: PhysicsService group-level collision is disabled for the character,
+--  making it non-collidable with ALL game geometry regardless of how the
+--  world is structured.  Per-part CanCollide=false runs as a fallback every
+--  Stepped tick, and a DescendantAdded listener handles tools / accessories
+--  that are attached to the character after noclip is toggled on.
 -- ════════════════════════════════════════════════════════════════
-local UniTab = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
+local _noclipGroup      = "PhantomNoclip"
+local _noclipGroupReady = false
+pcall(function()
+    -- Wrap the register separately; the group may already exist.
+    pcall(function() PhysicsService:RegisterCollisionGroup(_noclipGroup) end)
+    -- Disable collision between the noclip group and every other group.
+    PhysicsService:CollisionGroupSetCollidable(_noclipGroup, "Default",    false)
+    PhysicsService:CollisionGroupSetCollidable(_noclipGroup, _noclipGroup, false)
+    _noclipGroupReady = true
+end)
 
--- 2 sections each side for a balanced look
+local function _ncSetPart(part, enable)
+    part.CanCollide = not enable
+    if _noclipGroupReady then
+        pcall(function()
+            part.CollisionGroup = enable and _noclipGroup or "Default"
+        end)
+    end
+end
+
+local function _ncSetChar(char, enable)
+    if not char then return end
+    for _, d in ipairs(char:GetDescendants()) do
+        if d:IsA("BasePart") then _ncSetPart(d, enable) end
+    end
+end
+
+-- ════════════════════════════════════════════════════════════════
+--  WALK SPEED ENFORCER
+--  FIX: A Heartbeat loop continuously re-applies the custom speed so any
+--  game-side sprint script that overwrites WalkSpeed on Shift is corrected
+--  within a single frame.  When speed is reset to 16 the enforcer stops and
+--  control is returned to the game.
+-- ════════════════════════════════════════════════════════════════
+local _wsTarget = 16
+local _wsConn   = nil
+
+local function startWsEnforcer(speed)
+    _wsTarget = speed
+    if _wsConn then _wsConn:Disconnect() end
+    _wsConn = RunService.Heartbeat:Connect(function()
+        local h = getHum()
+        if h and h.WalkSpeed ~= _wsTarget then h.WalkSpeed = _wsTarget end
+    end)
+end
+
+local function stopWsEnforcer()
+    if _wsConn then _wsConn:Disconnect(); _wsConn = nil end
+end
+
+-- ════════════════════════════════════════════════════════════════
+--  TABS & SECTIONS
+-- ════════════════════════════════════════════════════════════════
+local UniTab    = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
 local UniPlayer = UniTab:NewSection({ Position = "Left",  Title = "Player"   })
 local UniMove   = UniTab:NewSection({ Position = "Left",  Title = "Movement" })
 local UniUtil   = UniTab:NewSection({ Position = "Right", Title = "Utility"  })
@@ -174,16 +207,20 @@ local UniESP    = UniTab:NewSection({ Position = "Right", Title = "ESP"      })
 --  PLAYER SECTION
 -- ════════════════════════════════════════════════════════════════
 
--- Walk Speed
+-- Walk Speed — FIX: enforcer prevents sprint from breaking the setting
 UniPlayer:NewSlider({
     Title    = "Walk Speed",
     Min      = 16,
     Max      = 300,
     Default  = 16,
     Callback = function(v)
-        local hum = getHum()
-        if hum then hum.WalkSpeed = v end
         _G.PhantomWalkSpeed = v
+        if v > 16 then
+            startWsEnforcer(v)
+        else
+            stopWsEnforcer()
+            local h = getHum(); if h then h.WalkSpeed = v end
+        end
     end,
 })
 
@@ -194,13 +231,12 @@ UniPlayer:NewSlider({
     Max      = 200,
     Default  = 7,
     Callback = function(v)
-        local hum = getHum()
-        if hum then hum.JumpPower = v end
-        _G.PhantomJumpPower = v  -- BUG FIX #4: was incorrectly _G.PhantomWalkSpeed
+        _G.PhantomJumpPower = v   -- BUGFIX: was _G.PhantomWalkSpeed
+        local h = getHum(); if h then h.JumpPower = v end
     end,
 })
 
--- Fly Speed (lives here since it's a speed stat)
+-- Fly Speed
 UniPlayer:NewSlider({
     Title    = "Fly Speed",
     Min      = 10,
@@ -222,47 +258,42 @@ UniMove:NewToggle({
         if _infJumpConn then _infJumpConn:Disconnect(); _infJumpConn = nil end
         if v then
             _infJumpConn = UIS.JumpRequest:Connect(function()
-                local hum = getHum()
-                if hum then hum:ChangeState(Enum.HumanoidStateType.Jumping) end
+                local h = getHum()
+                if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
             end)
         end
     end,
 })
 
--- ── Fly (WASD + Space/LCtrl) ─────────────────────────────────
+-- ── Fly ───────────────────────────────────────────────────────
 local _flyEnabled = false
-local _flyConn, _flyCharConn
-local _bodyVel, _bodyGyro
+local _flyConn, _flyCharConn, _bodyVel, _bodyGyro
 
 local function stopFly()
     _flyEnabled = false
-    if _flyConn     then _flyConn:Disconnect();     _flyConn = nil     end
+    if _flyConn then _flyConn:Disconnect(); _flyConn = nil end
     pcall(function()
         if _bodyVel  then _bodyVel:Destroy();  _bodyVel  = nil end
         if _bodyGyro then _bodyGyro:Destroy(); _bodyGyro = nil end
     end)
-    local hum = getHum()
-    if hum then hum.PlatformStand = false end
+    local h = getHum(); if h then h.PlatformStand = false end
 end
 
 local function startFly()
-    stopFly()
-    _flyEnabled = true
-    local char = getChar()
-    if not char then return end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    local hum = char:FindFirstChildOfClass("Humanoid")
+    stopFly(); _flyEnabled = true
+    local char = getChar(); if not char then return end
+    local hrp  = char:FindFirstChild("HumanoidRootPart")
+    local hum  = char:FindFirstChildOfClass("Humanoid")
     if not hrp or not hum then return end
-
     hum.PlatformStand = true
 
     _bodyVel          = Instance.new("BodyVelocity")
-    _bodyVel.Velocity = Vector3.new(0, 0, 0)
-    _bodyVel.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+    _bodyVel.Velocity = Vector3.new(0,0,0)
+    _bodyVel.MaxForce = Vector3.new(1e5,1e5,1e5)
     _bodyVel.Parent   = hrp
 
     _bodyGyro           = Instance.new("BodyGyro")
-    _bodyGyro.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
+    _bodyGyro.MaxTorque = Vector3.new(1e5,1e5,1e5)
     _bodyGyro.D         = 100
     _bodyGyro.CFrame    = hrp.CFrame
     _bodyGyro.Parent    = hrp
@@ -270,16 +301,16 @@ local function startFly()
     local cam = workspace.CurrentCamera
     _flyConn = RunService.Heartbeat:Connect(function()
         if not _flyEnabled or not hrp.Parent then return end
-        local dir = Vector3.new(0, 0, 0)
-        if UIS:IsKeyDown(Enum.KeyCode.W)            then dir = dir + cam.CFrame.LookVector  end
-        if UIS:IsKeyDown(Enum.KeyCode.S)            then dir = dir - cam.CFrame.LookVector  end
-        if UIS:IsKeyDown(Enum.KeyCode.A)            then dir = dir - cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.D)            then dir = dir + cam.CFrame.RightVector end
-        if UIS:IsKeyDown(Enum.KeyCode.Space)        then dir = dir + Vector3.new(0, 1, 0)   end
+        local dir = Vector3.new(0,0,0)
+        if UIS:IsKeyDown(Enum.KeyCode.W)          then dir = dir + cam.CFrame.LookVector  end
+        if UIS:IsKeyDown(Enum.KeyCode.S)          then dir = dir - cam.CFrame.LookVector  end
+        if UIS:IsKeyDown(Enum.KeyCode.A)          then dir = dir - cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.D)          then dir = dir + cam.CFrame.RightVector end
+        if UIS:IsKeyDown(Enum.KeyCode.Space)      then dir = dir + Vector3.new(0,1,0)     end
         if UIS:IsKeyDown(Enum.KeyCode.LeftControl)
-        or UIS:IsKeyDown(Enum.KeyCode.LeftShift)    then dir = dir - Vector3.new(0, 1, 0)   end
-        _bodyVel.Velocity  = dir.Magnitude > 0 and dir.Unit * _flySpeed or Vector3.new(0, 0, 0)
-        _bodyGyro.CFrame   = CFrame.new(hrp.Position, hrp.Position + cam.CFrame.LookVector)
+        or UIS:IsKeyDown(Enum.KeyCode.LeftShift)  then dir = dir - Vector3.new(0,1,0)     end
+        _bodyVel.Velocity = dir.Magnitude > 0 and dir.Unit * _flySpeed or Vector3.new(0,0,0)
+        _bodyGyro.CFrame  = CFrame.new(hrp.Position, hrp.Position + cam.CFrame.LookVector)
     end)
 end
 
@@ -301,30 +332,34 @@ UniMove:NewToggle({
 })
 
 -- ── No Clip ───────────────────────────────────────────────────
-local _noclipConn, _noclipCharConn, _noclipHL
-
-local function setCollision(char, state)
-    if not char then return end
-    for _, part in ipairs(char:GetDescendants()) do
-        if part:IsA("BasePart") then
-            part.CanCollide = state
-        end
-    end
-end
+local _noclipConn, _noclipPartConn, _noclipCharConn, _noclipHL
 
 local function applyNoclipHighlight(char)
     pcall(function() if _noclipHL then _noclipHL:Destroy() end end)
     _noclipHL = nil
     if not char then return end
-    local hl                  = Instance.new("Highlight")
-    hl.Adornee                = char
-    hl.FillColor              = Color3.fromRGB(138, 43, 226)
-    hl.FillTransparency       = 0.75
-    hl.OutlineColor           = Color3.fromRGB(180, 100, 255)
-    hl.OutlineTransparency    = 0.3
-    hl.DepthMode              = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent                 = workspace
+    local hl               = Instance.new("Highlight")
+    hl.Adornee             = char
+    hl.FillColor           = Color3.fromRGB(138, 43, 226)
+    hl.FillTransparency    = 0.75
+    hl.OutlineColor        = Color3.fromRGB(180, 100, 255)
+    hl.OutlineTransparency = 0.3
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent              = workspace
     _noclipHL = hl
+end
+
+local function setupNoclipChar(char)
+    if not char then return end
+    _ncSetChar(char, true)
+    applyNoclipHighlight(char)
+    -- Layer 3: immediately disable collision for any part added later
+    if _noclipPartConn then _noclipPartConn:Disconnect() end
+    _noclipPartConn = char.DescendantAdded:Connect(function(d)
+        if d:IsA("BasePart") then
+            task.defer(function() pcall(function() _ncSetPart(d, true) end) end)
+        end
+    end)
 end
 
 UniMove:NewToggle({
@@ -332,30 +367,37 @@ UniMove:NewToggle({
     Default  = false,
     Callback = function(v)
         if _noclipConn     then _noclipConn:Disconnect();     _noclipConn     = nil end
+        if _noclipPartConn then _noclipPartConn:Disconnect(); _noclipPartConn = nil end
         if _noclipCharConn then _noclipCharConn:Disconnect(); _noclipCharConn = nil end
         pcall(function() if _noclipHL then _noclipHL:Destroy() end end)
         _noclipHL = nil
 
         if v then
-            setCollision(getChar(), false)
-            applyNoclipHighlight(getChar())
-            _noclipCharConn = LocalPlayer.CharacterAdded:Connect(function(char)
-                task.wait(0.5)
-                pcall(function() if _noclipHL then _noclipHL:Destroy() end end)
-                setCollision(char, false)
-                applyNoclipHighlight(char)
-            end)
+            setupNoclipChar(getChar())
+
+            -- Layer 2: per-frame enforcer (catches server-driven CanCollide resets)
             _noclipConn = RunService.Stepped:Connect(function()
-                local char = getChar()
-                if not char then return end
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        part.CanCollide = false
+                local char = getChar(); if not char then return end
+                for _, d in ipairs(char:GetDescendants()) do
+                    if d:IsA("BasePart") then
+                        if d.CanCollide then d.CanCollide = false end
+                        if _noclipGroupReady then
+                            pcall(function()
+                                if d.CollisionGroup ~= _noclipGroup then
+                                    d.CollisionGroup = _noclipGroup
+                                end
+                            end)
+                        end
                     end
                 end
             end)
+
+            -- Persist through respawn
+            _noclipCharConn = LocalPlayer.CharacterAdded:Connect(function(char)
+                task.wait(0.5); setupNoclipChar(char)
+            end)
         else
-            setCollision(getChar(), true)
+            _ncSetChar(getChar(), false)
         end
     end,
 })
@@ -377,9 +419,9 @@ UniUtil:NewToggle({
                     task.wait(60)
                     pcall(function()
                         local VU = game:GetService("VirtualUser")
-                        VU:Button2Down(Vector2.new(0, 0), CFrame.new())
+                        VU:Button2Down(Vector2.new(0,0), CFrame.new())
                         task.wait(0.1)
-                        VU:Button2Up(Vector2.new(0, 0), CFrame.new())
+                        VU:Button2Up(Vector2.new(0,0), CFrame.new())
                     end)
                 end
             end)
@@ -388,22 +430,22 @@ UniUtil:NewToggle({
 })
 
 -- ── Fullbright ────────────────────────────────────────────────
-local _origBrightness, _origAmbient, _origOutdoor
+local _origBright, _origAmbient, _origOutdoor
 UniUtil:NewToggle({
     Title    = "Fullbright",
     Default  = false,
     Callback = function(v)
         if v then
-            _origBrightness  = Lighting.Brightness
-            _origAmbient     = Lighting.Ambient
-            _origOutdoor     = Lighting.OutdoorAmbient
+            _origBright  = Lighting.Brightness
+            _origAmbient = Lighting.Ambient
+            _origOutdoor = Lighting.OutdoorAmbient
             Lighting.Brightness     = 2
-            Lighting.Ambient        = Color3.fromRGB(178, 178, 178)
-            Lighting.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
+            Lighting.Ambient        = Color3.fromRGB(178,178,178)
+            Lighting.OutdoorAmbient = Color3.fromRGB(178,178,178)
         else
-            Lighting.Brightness     = _origBrightness or 1
-            Lighting.Ambient        = _origAmbient    or Color3.fromRGB(127, 127, 127)
-            Lighting.OutdoorAmbient = _origOutdoor    or Color3.fromRGB(127, 127, 127)
+            Lighting.Brightness     = _origBright  or 1
+            Lighting.Ambient        = _origAmbient or Color3.fromRGB(127,127,127)
+            Lighting.OutdoorAmbient = _origOutdoor or Color3.fromRGB(127,127,127)
         end
     end,
 })
@@ -415,8 +457,8 @@ UniUtil:NewToggle({
     Default  = false,
     Callback = function(v)
         if v then
-            _origFogEnd      = Lighting.FogEnd
-            _origFogStart    = Lighting.FogStart
+            _origFogEnd   = Lighting.FogEnd
+            _origFogStart = Lighting.FogStart
             Lighting.FogEnd   = 1e9
             Lighting.FogStart = 1e9
             local atm = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -438,9 +480,7 @@ UniUtil:NewSlider({
     Min      = 50,
     Max      = 120,
     Default  = 70,
-    Callback = function(v)
-        workspace.CurrentCamera.FieldOfView = v
-    end,
+    Callback = function(v) workspace.CurrentCamera.FieldOfView = v end,
 })
 
 -- ── Time of Day ───────────────────────────────────────────────
@@ -449,9 +489,7 @@ UniUtil:NewSlider({
     Min      = 0,
     Max      = 24,
     Default  = 14,
-    Callback = function(v)
-        Lighting.ClockTime = v
-    end,
+    Callback = function(v) Lighting.ClockTime = v end,
 })
 
 UniUtil:NewSeparator()
@@ -459,7 +497,6 @@ UniUtil:NewSeparator()
 -- ── Auto Rejoin ────────────────────────────────────────────────
 local _autoRejoinActive = false
 local _autoRejoinConn
-
 UniUtil:NewToggle({
     Title    = "Auto Rejoin",
     Default  = false,
@@ -491,27 +528,42 @@ UniUtil:NewToggle({
 UniUtil:NewSeparator()
 
 -- ── Teleport to Player ─────────────────────────────────────────
+-- CHANGE: replaced free-text input with a player-name dropdown so the user
+-- can see who is in the server without typing.  Options are built at
+-- injection time; the Teleport button still does a live name lookup so it
+-- works even if a player's character was absent when the dropdown was built.
 local _tpTarget = ""
 
-UniUtil:NewInput({
-    Title       = "Teleport to Player",
-    Placeholder = "Username or display name...",
-    Callback    = function(text) _tpTarget = text end,
+local function _buildPlayerOpts()
+    local t = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer then table.insert(t, plr.Name) end
+    end
+    return #t > 0 and t or { "(no other players)" }
+end
+
+local _tpOpts = _buildPlayerOpts()
+_tpTarget     = _tpOpts[1]
+
+UniUtil:NewDropdown({
+    Title    = "Select Target",
+    Options  = _tpOpts,
+    Default  = _tpOpts[1],
+    Callback = function(v) _tpTarget = v end,
 })
 
 UniUtil:NewButton({
     Title    = "Teleport →",
     Callback = function()
-        local target = _tpTarget:lower()
-        if target == "" then
-            Hub:Notify({ Title = "Teleport", Message = "Enter a player name first", Duration = 2 })
+        if _tpTarget == "" or _tpTarget == "(no other players)" then
+            Hub:Notify({ Title = "Teleport", Message = "No target selected", Duration = 2 })
             return
         end
+        local tLow = _tpTarget:lower()
         for _, plr in ipairs(Players:GetPlayers()) do
             if plr ~= LocalPlayer then
-                local matchName = plr.Name:lower():find(target, 1, true)
-                local matchDisp = plr.DisplayName:lower():find(target, 1, true)
-                if matchName or matchDisp then
+                if plr.Name:lower() == tLow
+                or plr.DisplayName:lower():find(tLow, 1, true) then
                     local char  = getChar()
                     local tChar = plr.Character
                     local hrp   = char  and char:FindFirstChild("HumanoidRootPart")
@@ -555,24 +607,29 @@ UniUtil:NewButton({
                 end
                 local candidates = {}
                 for _, srv in ipairs(data.data) do
-                    if srv.playing < srv.maxPlayers then
-                        table.insert(candidates, srv.id)
-                    end
+                    if srv.playing < srv.maxPlayers then table.insert(candidates, srv.id) end
                 end
                 if #candidates == 0 then
                     Hub:Notify({ Title = "Server Hop", Message = "No open servers found", Duration = 3 })
                     return
                 end
-                local target = candidates[math.random(1, #candidates)]
                 Hub:Notify({ Title = "Server Hop", Message = "Joining server...", Duration = 3 })
-                TeleSvc:TeleportToPlaceInstance(PlaceId, target, LocalPlayer)
+                TeleSvc:TeleportToPlaceInstance(PlaceId, candidates[math.random(1, #candidates)], LocalPlayer)
             end)
         end)
     end,
 })
 
 -- ════════════════════════════════════════════════════════════════
---  ESP SECTION  (Highlight-based, works in every game)
+--  ESP SECTION
+--  Element order (per spec):
+--    Player ESP · Show Names · Team Check
+--    ── separator ──
+--    ESP Lines · Line Origin dropdown  (new)
+--    ── separator ──
+--    Skeleton ESP
+--    ── separator ──
+--    Fill Opacity · Fill Color  (color picker moved to bottom)
 -- ════════════════════════════════════════════════════════════════
 
 local _espActive    = false
@@ -581,29 +638,26 @@ local _espTeamCheck = false
 local _espFillColor = Color3.fromRGB(255, 50, 50)
 local _espFillTrans = 0.65
 local _espConns     = {}
-local _espObjs      = {}   -- [player] = { hl = Highlight, tag = BillboardGui }
+local _espObjs      = {}
 
 local function makeNameTag(plr, char)
     if not _espShowNames then return nil end
-    local head = char:FindFirstChild("Head")
-    if not head then return nil end
-
-    local bill         = Instance.new("BillboardGui")
-    bill.Name          = "PhantomESPTag"
-    bill.Size          = UDim2.new(0, 100, 0, 22)
-    bill.StudsOffset   = Vector3.new(0, 3, 0)
-    bill.AlwaysOnTop   = true
-    bill.Adornee       = head
-    bill.Parent        = workspace
-
+    local head = char:FindFirstChild("Head"); if not head then return nil end
+    local bill             = Instance.new("BillboardGui")
+    bill.Name              = "PhantomESPTag"
+    bill.Size              = UDim2.new(0,100,0,22)
+    bill.StudsOffset       = Vector3.new(0,3,0)
+    bill.AlwaysOnTop       = true
+    bill.Adornee           = head
+    bill.Parent            = workspace
     local lbl                   = Instance.new("TextLabel")
     lbl.Text                    = plr.DisplayName
     lbl.Font                    = Enum.Font.GothamBold
     lbl.TextSize                = 12
-    lbl.TextColor3              = Color3.new(1, 1, 1)
+    lbl.TextColor3              = Color3.new(1,1,1)
     lbl.TextStrokeTransparency  = 0.4
     lbl.BackgroundTransparency  = 1
-    lbl.Size                    = UDim2.new(1, 0, 1, 0)
+    lbl.Size                    = UDim2.new(1,0,1,0)
     lbl.Parent                  = bill
     return bill
 end
@@ -611,25 +665,21 @@ end
 local function addPlayerESP(plr)
     if plr == LocalPlayer then return end
     if _espTeamCheck and plr.Team == LocalPlayer.Team then return end
-    local char = plr.Character
-    if not char then return end
-
+    local char = plr.Character; if not char then return end
     if _espObjs[plr] then
         pcall(function()
             if _espObjs[plr].hl  then _espObjs[plr].hl:Destroy()  end
             if _espObjs[plr].tag then _espObjs[plr].tag:Destroy() end
         end)
     end
-
-    local hl                   = Instance.new("Highlight")
-    hl.Adornee                 = char
-    hl.FillColor               = _espFillColor
-    hl.FillTransparency        = _espFillTrans
-    hl.OutlineColor            = Color3.fromRGB(255, 255, 255)
-    hl.OutlineTransparency     = 0
-    hl.DepthMode               = Enum.HighlightDepthMode.AlwaysOnTop
-    hl.Parent                  = workspace
-
+    local hl               = Instance.new("Highlight")
+    hl.Adornee             = char
+    hl.FillColor           = _espFillColor
+    hl.FillTransparency    = _espFillTrans
+    hl.OutlineColor        = Color3.fromRGB(255,255,255)
+    hl.OutlineTransparency = 0
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent              = workspace
     _espObjs[plr] = { hl = hl, tag = makeNameTag(plr, char) }
 end
 
@@ -645,8 +695,7 @@ end
 local function clearESP()
     for plr in pairs(_espObjs) do removePlayerESP(plr) end
     for _, c in ipairs(_espConns) do c:Disconnect() end
-    _espConns  = {}
-    _espActive = false
+    _espConns = {}; _espActive = false
 end
 
 local function enableESP()
@@ -662,72 +711,30 @@ local function enableESP()
             task.wait(0.1); addPlayerESP(plr)
         end))
     end))
-    table.insert(_espConns, Players.PlayerRemoving:Connect(function(plr)
-        removePlayerESP(plr)
-    end))
+    table.insert(_espConns, Players.PlayerRemoving:Connect(removePlayerESP))
 end
 
 local function refreshESP()
     if not _espActive then return end
-    for _, plr in ipairs(Players:GetPlayers()) do
-        addPlayerESP(plr)
-    end
+    for _, plr in ipairs(Players:GetPlayers()) do addPlayerESP(plr) end
 end
 
-UniESP:NewToggle({
-    Title    = "Player ESP",
-    Default  = false,
-    Callback = function(v)
-        if v then enableESP() else clearESP() end
-    end,
-})
-
-UniESP:NewToggle({
-    Title    = "Show Names",
-    Default  = true,
-    Callback = function(v)
-        _espShowNames = v; refreshESP()
-    end,
-})
-
-UniESP:NewToggle({
-    Title    = "Team Check",
-    Default  = false,
-    Callback = function(v)
-        _espTeamCheck = v; refreshESP()
-    end,
-})
+-- ── Player ESP / Names / Team ─────────────────────────────────
+UniESP:NewToggle({ Title="Player ESP", Default=false,
+    Callback = function(v) if v then enableESP() else clearESP() end end })
+UniESP:NewToggle({ Title="Show Names", Default=true,
+    Callback = function(v) _espShowNames = v; refreshESP() end })
+UniESP:NewToggle({ Title="Team Check", Default=false,
+    Callback = function(v) _espTeamCheck = v; refreshESP() end })
 
 UniESP:NewSeparator()
 
-UniESP:NewSlider({
-    Title    = "Fill Opacity %",
-    Min      = 0,
-    Max      = 100,
-    Default  = 35,
-    Callback = function(v)
-        _espFillTrans = 1 - (v / 100)
-        for _, obj in pairs(_espObjs) do
-            if obj.hl then obj.hl.FillTransparency = _espFillTrans end
-        end
-    end,
-})
-
-UniESP:NewColorPicker({
-    Title    = "Fill Color",
-    Default  = Color3.fromRGB(255, 50, 50),
-    Callback = function(c)
-        _espFillColor = c
-        for _, obj in pairs(_espObjs) do
-            if obj.hl then obj.hl.FillColor = c end
-        end
-    end,
-})
-
-UniESP:NewSeparator()
-
--- ── ESP Lines (Drawing API) ──────────────────────────────────
+-- ── ESP Lines + Line Origin ────────────────────────────────────
+-- CHANGE: "Line Origin" dropdown lets the user choose between
+--   "Bottom"  — classic tracer: line from bottom-center of screen
+--   "Center"  — crosshair style: line from screen centre
 local _espLinesActive  = false
+local _espLineOrigin   = "Bottom"
 local _espLinesConn
 local _espLineDrawings = {}
 
@@ -743,13 +750,15 @@ UniESP:NewToggle({
             return
         end
         if not Drawing then
-            Hub:Notify({Title="ESP Lines", Message="Drawing API not supported", Duration=3})
+            Hub:Notify({ Title="ESP Lines", Message="Drawing API not supported", Duration=3 })
             return
         end
         _espLinesConn = RunService.RenderStepped:Connect(function()
-            local cam = workspace.CurrentCamera
-            local cx  = cam.ViewportSize.X / 2
-            local cy  = cam.ViewportSize.Y
+            local cam  = workspace.CurrentCamera
+            local vp   = cam.ViewportSize
+            local fromX = vp.X * 0.5
+            local fromY = _espLineOrigin == "Bottom" and vp.Y or vp.Y * 0.5
+
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer then
                     local char = plr.Character
@@ -757,14 +766,14 @@ UniESP:NewToggle({
                     if hrp then
                         local sp, vis = cam:WorldToViewportPoint(hrp.Position)
                         if not _espLineDrawings[plr] then
-                            local ln       = Drawing.new("Line")
-                            ln.Thickness   = 1
-                            ln.Color       = _espFillColor
-                            ln.Visible     = false
+                            local ln     = Drawing.new("Line")
+                            ln.Thickness = 1
+                            ln.Color     = _espFillColor
+                            ln.Visible   = false
                             _espLineDrawings[plr] = ln
                         end
                         local ln   = _espLineDrawings[plr]
-                        ln.From    = Vector2.new(cx, cy)
+                        ln.From    = Vector2.new(fromX, fromY)
                         ln.To      = Vector2.new(sp.X, sp.Y)
                         ln.Color   = _espFillColor
                         ln.Visible = vis and (sp.Z > 0)
@@ -783,29 +792,84 @@ UniESP:NewToggle({
     end,
 })
 
--- ── Skeleton ESP ─────────────────────────────────────────────
+-- CHANGE: new Line Origin dropdown
+UniESP:NewDropdown({
+    Title    = "Line Origin",
+    Options  = { "Bottom", "Center" },
+    Default  = "Bottom",
+    Callback = function(v) _espLineOrigin = v end,
+})
+
+UniESP:NewSeparator()
+
+-- ── Skeleton ESP ──────────────────────────────────────────────
+-- CHANGE: Fully rewritten.
+--
+-- Previous version connected part *centers* (e.g. Torso.Position → Left Arm.Position),
+-- which placed lines through the midpoints of body segments rather than at the
+-- actual joints — shoulders appeared in the middle of the torso, knees in the
+-- middle of the upper leg, etc.
+--
+-- New version uses the world-space position of the named Attachment found *inside*
+-- each part.  Roblox characters ship with a standard set of joint attachments
+-- (NeckAttachment, LeftShoulderAttachment, LeftElbowAttachment …) that sit exactly
+-- at the anatomical joint locations.  getBonePos falls back to the part centre when
+-- an attachment is missing (custom rigs, morphs) so it degrades gracefully.
+--
+-- Visual changes:
+--   • 2 px line thickness instead of 1 px — readable at distance
+--   • Lines drawn in the shared _espFillColor for consistent style
+--   • Rig type is re-detected each frame so character swaps are handled
+
 local _skelActive   = false
 local _skelConn
 local _skelDrawings = {}
 
-local R6_LINKS = {
-    {"Head", "Torso"},
-    {"Torso", "Left Arm"}, {"Torso", "Right Arm"},
-    {"Torso", "Left Leg"}, {"Torso", "Right Leg"},
+local function getBonePos(char, partName, attachName)
+    local part = char:FindFirstChild(partName)
+    if not part then return nil end
+    if attachName then
+        local att = part:FindFirstChild(attachName)
+        if att then return (part.CFrame * att.CFrame).Position end
+    end
+    return part.Position
+end
+
+-- Each entry: { partA, attachmentA, partB, attachmentB }
+local R15_BONES = {
+    -- Spine / neck
+    { "Head",         "NeckAttachment",          "UpperTorso",   "NeckAttachment"          },
+    { "UpperTorso",   "WaistCenterAttachment",    "LowerTorso",   "WaistCenterAttachment"   },
+    -- Left arm
+    { "UpperTorso",   "LeftShoulderAttachment",   "LeftUpperArm", "LeftShoulderAttachment"  },
+    { "LeftUpperArm", "LeftElbowAttachment",      "LeftLowerArm", "LeftElbowAttachment"     },
+    { "LeftLowerArm", "LeftWristAttachment",      "LeftHand",     "LeftWristAttachment"     },
+    -- Right arm
+    { "UpperTorso",   "RightShoulderAttachment",  "RightUpperArm","RightShoulderAttachment" },
+    { "RightUpperArm","RightElbowAttachment",     "RightLowerArm","RightElbowAttachment"    },
+    { "RightLowerArm","RightWristAttachment",     "RightHand",    "RightWristAttachment"    },
+    -- Left leg
+    { "LowerTorso",   "LeftHipAttachment",        "LeftUpperLeg", "LeftHipAttachment"       },
+    { "LeftUpperLeg", "LeftKneeAttachment",       "LeftLowerLeg", "LeftKneeAttachment"      },
+    { "LeftLowerLeg", "LeftAnkleAttachment",      "LeftFoot",     "LeftAnkleAttachment"     },
+    -- Right leg
+    { "LowerTorso",   "RightHipAttachment",       "RightUpperLeg","RightHipAttachment"      },
+    { "RightUpperLeg","RightKneeAttachment",      "RightLowerLeg","RightKneeAttachment"     },
+    { "RightLowerLeg","RightAnkleAttachment",     "RightFoot",    "RightAnkleAttachment"    },
 }
-local R15_LINKS = {
-    {"Head", "UpperTorso"}, {"UpperTorso", "LowerTorso"},
-    {"UpperTorso", "LeftUpperArm"}, {"LeftUpperArm", "LeftLowerArm"}, {"LeftLowerArm", "LeftHand"},
-    {"UpperTorso", "RightUpperArm"}, {"RightUpperArm", "RightLowerArm"}, {"RightLowerArm", "RightHand"},
-    {"LowerTorso", "LeftUpperLeg"}, {"LeftUpperLeg", "LeftLowerLeg"}, {"LeftLowerLeg", "LeftFoot"},
-    {"LowerTorso", "RightUpperLeg"}, {"RightUpperLeg", "RightLowerLeg"}, {"RightLowerLeg", "RightFoot"},
+
+local R6_BONES = {
+    { "Head",  "NeckAttachment",          "Torso",     "NeckAttachment"          },
+    { "Torso", "LeftShoulderAttachment",  "Left Arm",  "LeftShoulderAttachment"  },
+    { "Torso", "RightShoulderAttachment", "Right Arm", "RightShoulderAttachment" },
+    { "Torso", "LeftHipAttachment",       "Left Leg",  "LeftHipAttachment"       },
+    { "Torso", "RightHipAttachment",      "Right Leg", "RightHipAttachment"      },
 }
 
 local function clearSkelPlayer(plr)
-    if _skelDrawings[plr] then
-        for _, ln in ipairs(_skelDrawings[plr]) do pcall(function() ln:Remove() end) end
-        _skelDrawings[plr] = nil
-    end
+    if not _skelDrawings[plr] then return end
+    for _, ln in ipairs(_skelDrawings[plr]) do pcall(function() ln:Remove() end) end
+    _skelDrawings[plr] = nil
 end
 
 UniESP:NewToggle({
@@ -819,7 +883,7 @@ UniESP:NewToggle({
             return
         end
         if not Drawing then
-            Hub:Notify({Title="Skeleton ESP", Message="Drawing API not supported", Duration=3})
+            Hub:Notify({ Title="Skeleton ESP", Message="Drawing API not supported", Duration=3 })
             return
         end
         _skelConn = RunService.RenderStepped:Connect(function()
@@ -827,31 +891,38 @@ UniESP:NewToggle({
             for _, plr in ipairs(Players:GetPlayers()) do
                 if plr ~= LocalPlayer then
                     local char = plr.Character
-                    if not char then clearSkelPlayer(plr) else
-                        local links = char:FindFirstChild("UpperTorso") and R15_LINKS or R6_LINKS
-                        if not _skelDrawings[plr] or #_skelDrawings[plr] ~= #links then
-                            clearSkelPlayer(plr)
-                            local pool = {}
-                            for _ = 1, #links do
+                    if not char then
+                        clearSkelPlayer(plr)
+                    else
+                        local isR15  = char:FindFirstChild("UpperTorso") ~= nil
+                        local bones  = isR15 and R15_BONES or R6_BONES
+                        local nBones = #bones
+
+                        -- (Re)allocate pool on first use or rig change
+                        local pool = _skelDrawings[plr]
+                        if not pool or #pool ~= nBones then
+                            clearSkelPlayer(plr); pool = {}
+                            for _ = 1, nBones do
                                 local ln     = Drawing.new("Line")
-                                ln.Thickness = 1
+                                ln.Thickness = 2        -- thicker for readability
                                 ln.Color     = _espFillColor
                                 ln.Visible   = false
                                 table.insert(pool, ln)
                             end
                             _skelDrawings[plr] = pool
                         end
-                        for i, link in ipairs(links) do
-                            local p1 = char:FindFirstChild(link[1])
-                            local p2 = char:FindFirstChild(link[2])
-                            local ln = _skelDrawings[plr][i]
-                            if p1 and p2 then
-                                local s1, v1 = cam:WorldToViewportPoint(p1.Position)
-                                local s2, v2 = cam:WorldToViewportPoint(p2.Position)
+
+                        for i, bone in ipairs(bones) do
+                            local ln    = pool[i]
+                            local wp1   = getBonePos(char, bone[1], bone[2])
+                            local wp2   = getBonePos(char, bone[3], bone[4])
+                            if wp1 and wp2 then
+                                local s1, v1 = cam:WorldToViewportPoint(wp1)
+                                local s2, v2 = cam:WorldToViewportPoint(wp2)
                                 ln.From    = Vector2.new(s1.X, s1.Y)
                                 ln.To      = Vector2.new(s2.X, s2.Y)
                                 ln.Color   = _espFillColor
-                                ln.Visible = v1 and v2 and (s1.Z > 0)
+                                ln.Visible = v1 and v2 and s1.Z > 0 and s2.Z > 0
                             else
                                 ln.Visible = false
                             end
@@ -860,11 +931,37 @@ UniESP:NewToggle({
                 end
             end
             for plr in pairs(_skelDrawings) do
-                if not Players:FindFirstChild(plr.Name) then
-                    clearSkelPlayer(plr)
-                end
+                if not Players:FindFirstChild(plr.Name) then clearSkelPlayer(plr) end
             end
         end)
+    end,
+})
+
+UniESP:NewSeparator()
+
+-- ── Fill Opacity + Fill Color  (color picker last per spec) ───
+UniESP:NewSlider({
+    Title    = "Fill Opacity %",
+    Min      = 0,
+    Max      = 100,
+    Default  = 35,
+    Callback = function(v)
+        _espFillTrans = 1 - (v / 100)
+        for _, obj in pairs(_espObjs) do
+            if obj.hl then obj.hl.FillTransparency = _espFillTrans end
+        end
+    end,
+})
+
+-- CHANGE: Fill Color picker moved to the very bottom of the ESP section
+UniESP:NewColorPicker({
+    Title    = "Fill Color",
+    Default  = Color3.fromRGB(255, 50, 50),
+    Callback = function(c)
+        _espFillColor = c
+        for _, obj in pairs(_espObjs) do
+            if obj.hl then obj.hl.FillColor = c end
+        end
     end,
 })
 
@@ -886,59 +983,30 @@ AppearSec:NewSlider({
     Min      = 30,
     Max      = 100,
     Default  = 95,
-    Callback = function(v)
-        Hub._win.BackgroundTransparency = 1 - (v / 100)
-    end,
+    Callback = function(v) Hub._win.BackgroundTransparency = 1 - (v / 100) end,
 })
 
-DataSec:NewButton({
-    Title    = "Save Config",
-    Callback = function()
-        SM:Save()
-        Hub:Notify({ Title = "Config", Message = "Saved successfully", Duration = 2 })
-    end,
-})
-DataSec:NewButton({
-    Title    = "Load Config",
-    Callback = function()
-        SM:Load()
-        Hub:Notify({ Title = "Config", Message = "Loaded and applied", Duration = 2 })
-    end,
-})
-DataSec:NewToggle({
-    Title    = "Auto Save",
-    Default  = true,
-    Callback = function(v)
-        if v then
-            Hub:AutoSave("phantom", Hub._autoSaveInterval or 60)
-        else
-            if Hub._autoSaveThread then
-                task.cancel(Hub._autoSaveThread)
-                Hub._autoSaveThread = nil
-            end
-        end
-    end,
-})
-DataSec:NewSlider({
-    Title    = "Auto Save (secs)",
-    Min      = 15,
-    Max      = 300,
-    Default  = 60,
-    Callback = function(v)
-        Hub._autoSaveInterval = v
-        Hub:AutoSave("phantom", v)
-    end,
-})
+DataSec:NewButton({ Title="Save Config", Callback=function()
+    SM:Save(); Hub:Notify({ Title="Config", Message="Saved successfully", Duration=2 })
+end })
+DataSec:NewButton({ Title="Load Config", Callback=function()
+    SM:Load(); Hub:Notify({ Title="Config", Message="Loaded and applied", Duration=2 })
+end })
+DataSec:NewToggle({ Title="Auto Save", Default=true, Callback=function(v)
+    if v then
+        Hub:AutoSave("phantom", Hub._autoSaveInterval or 60)
+    else
+        if Hub._autoSaveThread then task.cancel(Hub._autoSaveThread); Hub._autoSaveThread = nil end
+    end
+end })
+DataSec:NewSlider({ Title="Auto Save (secs)", Min=15, Max=300, Default=60, Callback=function(v)
+    Hub._autoSaveInterval = v; Hub:AutoSave("phantom", v)
+end })
 
-KbSec:NewKeybind({
-    Title    = "Toggle Keybind",
-    Default  = Enum.KeyCode.J,
-    Callback = function(key) Hub.Keybind = key end,
-})
+KbSec:NewKeybind({ Title="Toggle Keybind", Default=Enum.KeyCode.J,
+    Callback = function(key) Hub.Keybind = key end })
 
--- Hide Settings from sidebar (reachable only via the ⚙ topbar button)
 SetTab._btn.Visible = false
-
 Hub:AutoSave("phantom", 60)
 
 -- ════════════════════════════════════════════════════════════════
@@ -952,40 +1020,33 @@ if GameName ~= "Unknown" then
         local Combat = GameTab:NewSection({ Position = "Left",  Title = "Combat" })
         local Farm   = GameTab:NewSection({ Position = "Left",  Title = "Farm"   })
         local Player = GameTab:NewSection({ Position = "Right", Title = "Player" })
-
-        Combat:NewToggle({ Title = "Kill Aura",      Default = false, Callback = function(v) end })
-        Farm:NewToggle({   Title = "Auto Farm",       Default = false, Callback = function(v)
-            Hub:Notify({ Title = "Auto Farm", Message = v and "Enabled" or "Disabled", Duration = 3 })
+        Combat:NewToggle({ Title="Kill Aura",     Default=false, Callback=function(v) end })
+        Farm:NewToggle({   Title="Auto Farm",      Default=false, Callback=function(v)
+            Hub:Notify({ Title="Auto Farm", Message=v and "Enabled" or "Disabled", Duration=3 })
         end })
-        Farm:NewToggle({   Title = "Fruit Notifier",  Default = false, Callback = function(v) end })
-        Player:NewSlider({ Title = "Walk Speed", Min = 16, Max = 500, Default = 16, Callback = function(v)
-            local hum = getHum()
-            if hum then hum.WalkSpeed = v end
+        Farm:NewToggle({ Title="Fruit Notifier", Default=false, Callback=function(v) end })
+        Player:NewSlider({ Title="Walk Speed", Min=16, Max=500, Default=16, Callback=function(v)
+            local h = getHum(); if h then h.WalkSpeed = v end
         end })
-        Player:NewSlider({ Title = "Jump Power", Min = 7,  Max = 300, Default = 7,  Callback = function(v)
-            local hum = getHum()
-            if hum then hum.JumpPower = v end
+        Player:NewSlider({ Title="Jump Power", Min=7, Max=300, Default=7, Callback=function(v)
+            local h = getHum(); if h then h.JumpPower = v end
         end })
 
     elseif GameName == "DaHood" then
         local Combat = GameTab:NewSection({ Position = "Left",  Title = "Combat"  })
         local Player = GameTab:NewSection({ Position = "Right", Title = "Player"  })
         local Visual = GameTab:NewSection({ Position = "Right", Title = "Visuals" })
-
-        Combat:NewToggle({ Title = "Aimbot",     Default = false, Callback = function(v) end })
-        Combat:NewToggle({ Title = "Silent Aim", Default = false, Callback = function(v) end })
-        Combat:NewSlider({ Title = "Aimbot FOV", Min = 10, Max = 500, Default = 150, Callback = function(v) end })
-        Player:NewSlider({ Title = "Walk Speed", Min = 16, Max = 500, Default = 16, Callback = function(v)
-            local hum = getHum()
-            if hum then hum.WalkSpeed = v end
+        Combat:NewToggle({ Title="Aimbot",     Default=false, Callback=function(v) end })
+        Combat:NewToggle({ Title="Silent Aim", Default=false, Callback=function(v) end })
+        Combat:NewSlider({ Title="Aimbot FOV", Min=10, Max=500, Default=150, Callback=function(v) end })
+        Player:NewSlider({ Title="Walk Speed", Min=16, Max=500, Default=16, Callback=function(v)
+            local h = getHum(); if h then h.WalkSpeed = v end
         end })
-        Player:NewSlider({ Title = "Jump Power", Min = 7,  Max = 300, Default = 7,  Callback = function(v)
-            local hum = getHum()
-            if hum then hum.JumpPower = v end
+        Player:NewSlider({ Title="Jump Power", Min=7, Max=300, Default=7, Callback=function(v)
+            local h = getHum(); if h then h.JumpPower = v end
         end })
-        Visual:NewToggle({ Title = "Player ESP", Default = false, Callback = function(v) end })
+        Visual:NewToggle({ Title="Player ESP", Default=false, Callback=function(v) end })
     end
-
 else
     local UnkTab = Hub:NewTab({ Title = "Unknown Game", Icon = "rbxassetid://3926305904" })
     local UnkSec = UnkTab:NewSection({ Position = "Left", Title = "Info" })
