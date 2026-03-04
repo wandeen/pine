@@ -23,97 +23,23 @@ local Hub = Phantom.new({
 
 Hub:SetProfile()
 
--- ── Settings Tab (always first so it sits at the top of the sidebar) ──
-local SetTab    = Hub:NewTab({ Title = "Settings", Icon = "rbxassetid://3926307641" })
-local AppearSec = SetTab:NewSection({ Position = "Left",  Title = "Appearance" })
-local DataSec   = SetTab:NewSection({ Position = "Right", Title = "Config"     })
-local KbSec     = SetTab:NewSection({ Position = "Right", Title = "Keybind"    })
+-- ════════════════════════════════════════════════════════════════
+--  UNIVERSAL TAB  (first tab = opens by default)
+-- ════════════════════════════════════════════════════════════════
+local UniTab = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
 
--- Accent colour
-AppearSec:NewColorPicker({
-    Title    = "Accent Color",
-    Default  = Color3.fromRGB(110, 75, 255),
-    Callback = function(c) Hub:SetAccent(c) end,
-})
+local UniMove = UniTab:NewSection({ Position = "Left",  Title = "Movement" })
+local UniUtil = UniTab:NewSection({ Position = "Right", Title = "Utility"  })
+local UniESP  = UniTab:NewSection({ Position = "Right", Title = "ESP"      })
 
--- Window opacity
-AppearSec:NewSlider({
-    Title    = "Window Opacity %",
-    Min      = 30,
-    Max      = 100,
-    Default  = 85,
-    Callback = function(v)
-        Hub._win.BackgroundTransparency = 1 - (v / 100)
-    end,
-})
-
--- Config
-DataSec:NewButton({
-    Title    = "Save Config",
-    Callback = function()
-        Hub:SaveConfig("phantom")
-        Hub:Notify({ Title = "Config", Message = "Saved", Duration = 2 })
-    end,
-})
-DataSec:NewButton({
-    Title    = "Load Config",
-    Callback = function()
-        Hub:LoadConfig("phantom")
-        Hub:Notify({ Title = "Config", Message = "Loaded", Duration = 2 })
-    end,
-})
-DataSec:NewToggle({
-    Title    = "Auto Save",
-    Default  = true,
-    Callback = function(v)
-        if v then
-            Hub:AutoSave("phantom", Hub._autoSaveInterval or 60)
-        else
-            if Hub._autoSaveThread then
-                task.cancel(Hub._autoSaveThread)
-                Hub._autoSaveThread = nil
-            end
-        end
-    end,
-})
-DataSec:NewSlider({
-    Title    = "Auto Save (seconds)",
-    Min      = 15,
-    Max      = 300,
-    Default  = 60,
-    Callback = function(v)
-        Hub._autoSaveInterval = v
-        Hub:AutoSave("phantom", v)
-    end,
-})
-
--- Keybind
-KbSec:NewKeybind({
-    Title    = "Toggle Keybind",
-    Default  = Enum.KeyCode.J,
-    Callback = function(key) Hub.Keybind = key end,
-})
-
-Hub:AutoSave("phantom", 60)  -- start default auto-save
-
--- Hide Settings tab from the sidebar (still reachable via the ⚙ topbar button)
-SetTab._btn.Visible = false
-
--- ── Universal Tab ─────────────────────────────────────────────
-local UniTab     = Hub:NewTab({ Title = "Universal", Icon = "rbxassetid://3926305904" })
-local UniPlayer  = UniTab:NewSection({ Position = "Left",  Title = "Player"  })
-local UniMove    = UniTab:NewSection({ Position = "Left",  Title = "Movement" })
-local UniUtil    = UniTab:NewSection({ Position = "Right", Title = "Utility"  })
-local UniVisual  = UniTab:NewSection({ Position = "Right", Title = "Visual"   })
-
--- ── Player: Walk Speed ────────────────────────────────────────
+-- ── Movement: Walk Speed ──────────────────────────────────────
 local function applySpeed(v)
     local char = game.Players.LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then
         char.Humanoid.WalkSpeed = v
     end
 end
-UniPlayer:NewSlider({
+UniMove:NewSlider({
     Title    = "Walk Speed",
     Min      = 16,
     Max      = 500,
@@ -121,20 +47,22 @@ UniPlayer:NewSlider({
     Callback = applySpeed,
 })
 
--- ── Player: Jump Power ────────────────────────────────────────
+-- ── Movement: Jump Power ──────────────────────────────────────
 local function applyJump(v)
     local char = game.Players.LocalPlayer.Character
     if char and char:FindFirstChild("Humanoid") then
         char.Humanoid.JumpPower = v
     end
 end
-UniPlayer:NewSlider({
+UniMove:NewSlider({
     Title    = "Jump Power",
     Min      = 7,
     Max      = 300,
     Default  = 7,
     Callback = applyJump,
 })
+
+UniMove:NewSeparator()
 
 -- ── Movement: Infinite Jump ───────────────────────────────────
 local _infJumpConn
@@ -195,17 +123,17 @@ UniUtil:NewToggle({
     end,
 })
 
--- ── Visual: Fullbright ────────────────────────────────────────
+-- ── Utility: Fullbright ───────────────────────────────────────
 local _origBrightness, _origAmbient, _origOutdoor
-UniVisual:NewToggle({
+UniUtil:NewToggle({
     Title    = "Fullbright",
     Default  = false,
     Callback = function(v)
         local L = game:GetService("Lighting")
         if v then
-            _origBrightness = L.Brightness
-            _origAmbient    = L.Ambient
-            _origOutdoor    = L.OutdoorAmbient
+            _origBrightness  = L.Brightness
+            _origAmbient     = L.Ambient
+            _origOutdoor     = L.OutdoorAmbient
             L.Brightness     = 2
             L.Ambient        = Color3.fromRGB(178, 178, 178)
             L.OutdoorAmbient = Color3.fromRGB(178, 178, 178)
@@ -217,7 +145,153 @@ UniVisual:NewToggle({
     end,
 })
 
--- ── Game-Specific Tabs ────────────────────────────────────────
+-- ── ESP (Highlight-based — works across all games) ────────────
+local _espConns      = {}
+local _espHighlights = {}
+
+local function clearESP()
+    for _, hl in pairs(_espHighlights) do
+        pcall(function() hl:Destroy() end)
+    end
+    _espHighlights = {}
+    for _, c in ipairs(_espConns) do c:Disconnect() end
+    _espConns = {}
+end
+
+local function makeHighlight(player)
+    if player == game.Players.LocalPlayer then return end
+    local char = player.Character
+    if not char then return end
+    -- Remove old highlight for this player if any
+    if _espHighlights[player] then
+        pcall(function() _espHighlights[player]:Destroy() end)
+    end
+    local hl = Instance.new("Highlight")
+    hl.Adornee             = char
+    hl.FillColor           = Color3.fromRGB(255, 50,  50)
+    hl.FillTransparency    = 0.65
+    hl.OutlineColor        = Color3.fromRGB(255, 255, 255)
+    hl.OutlineTransparency = 0
+    hl.DepthMode           = Enum.HighlightDepthMode.AlwaysOnTop
+    hl.Parent              = game.Workspace
+    _espHighlights[player] = hl
+end
+
+local function enableESP()
+    local Players = game:GetService("Players")
+    for _, plr in ipairs(Players:GetPlayers()) do
+        makeHighlight(plr)
+        local c = plr.CharacterAdded:Connect(function()
+            task.wait(0.1)
+            makeHighlight(plr)
+        end)
+        table.insert(_espConns, c)
+    end
+    table.insert(_espConns, Players.PlayerAdded:Connect(function(plr)
+        local c = plr.CharacterAdded:Connect(function()
+            task.wait(0.1)
+            makeHighlight(plr)
+        end)
+        table.insert(_espConns, c)
+    end))
+    table.insert(_espConns, Players.PlayerRemoving:Connect(function(plr)
+        if _espHighlights[plr] then
+            pcall(function() _espHighlights[plr]:Destroy() end)
+            _espHighlights[plr] = nil
+        end
+    end))
+end
+
+UniESP:NewToggle({
+    Title    = "Player ESP",
+    Default  = false,
+    Callback = function(v)
+        clearESP()
+        if v then enableESP() end
+    end,
+})
+
+-- ════════════════════════════════════════════════════════════════
+--  SETTINGS TAB  (hidden from sidebar; open via ⚙ topbar button)
+-- ════════════════════════════════════════════════════════════════
+local SetTab    = Hub:NewTab({ Title = "Settings", Icon = "rbxassetid://3926307641" })
+local AppearSec = SetTab:NewSection({ Position = "Left",  Title = "Appearance" })
+local DataSec   = SetTab:NewSection({ Position = "Right", Title = "Config"     })
+local KbSec     = SetTab:NewSection({ Position = "Right", Title = "Keybind"    })
+
+-- Accent colour
+AppearSec:NewColorPicker({
+    Title    = "Accent Color",
+    Default  = Color3.fromRGB(110, 75, 255),
+    Callback = function(c) Hub:SetAccent(c) end,
+})
+
+-- Window opacity
+AppearSec:NewSlider({
+    Title    = "Window Opacity %",
+    Min      = 30,
+    Max      = 100,
+    Default  = 85,
+    Callback = function(v)
+        Hub._win.BackgroundTransparency = 1 - (v / 100)
+    end,
+})
+
+-- Config
+DataSec:NewButton({
+    Title    = "Save Config",
+    Callback = function()
+        Hub:SaveConfig("phantom")
+        Hub:Notify({ Title = "Config", Message = "Saved successfully", Duration = 2 })
+    end,
+})
+DataSec:NewButton({
+    Title    = "Load Config",
+    Callback = function()
+        Hub:LoadConfig("phantom")
+        Hub:Notify({ Title = "Config", Message = "Loaded and applied", Duration = 2 })
+    end,
+})
+DataSec:NewToggle({
+    Title    = "Auto Save",
+    Default  = true,
+    Callback = function(v)
+        if v then
+            Hub:AutoSave("phantom", Hub._autoSaveInterval or 60)
+        else
+            if Hub._autoSaveThread then
+                task.cancel(Hub._autoSaveThread)
+                Hub._autoSaveThread = nil
+            end
+        end
+    end,
+})
+DataSec:NewSlider({
+    Title    = "Auto Save (seconds)",
+    Min      = 15,
+    Max      = 300,
+    Default  = 60,
+    Callback = function(v)
+        Hub._autoSaveInterval = v
+        Hub:AutoSave("phantom", v)
+    end,
+})
+
+-- Keybind
+KbSec:NewKeybind({
+    Title    = "Toggle Keybind",
+    Default  = Enum.KeyCode.J,
+    Callback = function(key) Hub.Keybind = key end,
+})
+
+-- Hide Settings from sidebar (still reachable via the ⚙ topbar button)
+SetTab._btn.Visible = false
+
+Hub:AutoSave("phantom", 60)
+
+-- ════════════════════════════════════════════════════════════════
+--  GAME-SPECIFIC TABS
+-- ════════════════════════════════════════════════════════════════
 if GameName ~= "Unknown" then
     local gameIcon = GameName == "BloxFruits" and "rbxassetid://3926307959" or "rbxassetid://3926307433"
     local GameTab = Hub:NewTab({ Title = GameName, Icon = gameIcon })
@@ -228,21 +302,16 @@ if GameName ~= "Unknown" then
         local Farm   = GameTab:NewSection({ Position = "Left",  Title = "Farm"   })
         local Player = GameTab:NewSection({ Position = "Right", Title = "Player" })
 
-        local killAura = false
         Combat:NewToggle({
             Title    = "Kill Aura",
             Default  = false,
-            Callback = function(v)
-                killAura = v
-            end,
+            Callback = function(v) end,
         })
 
-        local autoFarm = false
         Farm:NewToggle({
             Title    = "Auto Farm",
             Default  = false,
             Callback = function(v)
-                autoFarm = v
                 Hub:Notify({
                     Title    = "Auto Farm",
                     Message  = v and "Enabled" or "Disabled",
@@ -254,9 +323,7 @@ if GameName ~= "Unknown" then
         Farm:NewToggle({
             Title    = "Fruit Notifier",
             Default  = false,
-            Callback = function(v)
-                -- add fruit notifier logic here
-            end,
+            Callback = function(v) end,
         })
 
         Player:NewSlider({
@@ -294,17 +361,13 @@ if GameName ~= "Unknown" then
         Combat:NewToggle({
             Title    = "Aimbot",
             Default  = false,
-            Callback = function(v)
-                -- add aimbot logic here
-            end,
+            Callback = function(v) end,
         })
 
         Combat:NewToggle({
             Title    = "Silent Aim",
             Default  = false,
-            Callback = function(v)
-                -- add silent aim logic here
-            end,
+            Callback = function(v) end,
         })
 
         Combat:NewSlider({
@@ -312,9 +375,7 @@ if GameName ~= "Unknown" then
             Min      = 10,
             Max      = 500,
             Default  = 150,
-            Callback = function(v)
-                -- set aimbot FOV here
-            end,
+            Callback = function(v) end,
         })
 
         Player:NewSlider({
@@ -346,9 +407,7 @@ if GameName ~= "Unknown" then
         Visual:NewToggle({
             Title    = "Player ESP",
             Default  = false,
-            Callback = function(v)
-                -- add ESP logic here
-            end,
+            Callback = function(v) end,
         })
     end
 
