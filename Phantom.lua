@@ -1261,45 +1261,57 @@ function Phantom:NewTab(opts)
             local mx = sopts2.Max     or 100
             local df = sopts2.Default or mn
 
-            local lbl = Instance.new("TextLabel")
-            lbl.Text                   = (sopts2.Title or "Slider") .. ": " .. tostring(df)
-            lbl.Font                   = T.FontReg
-            lbl.TextSize               = 13
-            lbl.TextColor3             = T.Text
-            lbl.BackgroundTransparency = 1
-            lbl.Size                   = UDim2.new(1, 0, 0, 20)
-            lbl.TextXAlignment         = Enum.TextXAlignment.Left
-            lbl.Parent                 = wrap
+            -- Title on the left, current value on the right in accent colour
+            local titleLbl = Instance.new("TextLabel")
+            titleLbl.Text                   = sopts2.Title or "Slider"
+            titleLbl.Font                   = T.FontReg
+            titleLbl.TextSize               = 13
+            titleLbl.TextColor3             = T.Text
+            titleLbl.BackgroundTransparency = 1
+            titleLbl.Size                   = UDim2.new(1, -44, 0, 20)
+            titleLbl.TextXAlignment         = Enum.TextXAlignment.Left
+            titleLbl.Parent                 = wrap
+
+            local valLbl = Instance.new("TextLabel")
+            valLbl.Text                   = tostring(df)
+            valLbl.Font                   = T.Font
+            valLbl.TextSize               = 13
+            valLbl.TextColor3             = T.Accent
+            valLbl.BackgroundTransparency = 1
+            valLbl.Size                   = UDim2.new(0, 40, 0, 20)
+            valLbl.Position               = UDim2.new(1, -40, 0, 0)
+            valLbl.TextXAlignment         = Enum.TextXAlignment.Right
+            valLbl.Parent                 = wrap
 
             local track = Instance.new("Frame")
-            track.Size             = UDim2.new(1, 0, 0, 6)
-            track.Position         = UDim2.new(0, 0, 0, 32)
+            track.Size             = UDim2.new(1, 0, 0, 8)
+            track.Position         = UDim2.new(0, 0, 0, 30)
             track.BackgroundColor3 = T.Off
             track.BorderSizePixel  = 0
             track.Parent           = wrap
-            corner(track, 3)
+            corner(track, 4)
 
             local fill = Instance.new("Frame")
             fill.Size             = UDim2.new(0, 0, 1, 0)
             fill.BackgroundColor3 = T.Accent
             fill.BorderSizePixel  = 0
             fill.Parent           = track
-            corner(fill, 3)
+            corner(fill, 4)
 
             local thumb = Instance.new("Frame")
-            thumb.Size             = UDim2.new(0, 14, 0, 14)
+            thumb.Size             = UDim2.new(0, 16, 0, 16)
             thumb.AnchorPoint      = Vector2.new(1, 0.5)
             thumb.Position         = UDim2.new(1, 0, 0.5, 0)
             thumb.BackgroundColor3 = Color3.new(1, 1, 1)
             thumb.BorderSizePixel  = 0
             thumb.Parent           = fill
-            corner(thumb, 7)
+            corner(thumb, 8)
 
             local function setVal(v, fire)
                 v = math.clamp(math.round(v), mn, mx)
                 local pct = (v - mn) / (mx - mn)
-                fill.Size = UDim2.new(pct, 0, 1, 0)
-                lbl.Text  = (sopts2.Title or "Slider") .. ": " .. tostring(v)
+                fill.Size    = UDim2.new(pct, 0, 1, 0)
+                valLbl.Text  = tostring(v)
                 hub._cfgState[tabTitle .. ">" .. secTitle .. ">" .. (sopts2.Title or "Slider")] = v
                 if fire and sopts2.Callback then sopts2.Callback(v) end
             end
