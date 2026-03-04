@@ -31,7 +31,7 @@ Phantom.Theme = {
 }
 
 -- Window dimensions
-local W, H   = 580, 400
+local W, H   = 680, 460
 local TOPBAR = 40
 local SIDE   = 116
 local FOOTER = 26
@@ -277,7 +277,7 @@ function Phantom.new(opts)
     local searchInline = Instance.new("TextBox")
     searchInline.PlaceholderText   = "⌕  Search..."
     searchInline.Text              = ""
-    searchInline.Font              = T.FontReg
+    searchInline.Font              = Enum.Font.Code  -- Code font has wider Unicode (renders ⌕)
     searchInline.TextSize          = 11
     searchInline.TextColor3        = T.Text
     searchInline.PlaceholderColor3 = T.Muted
@@ -718,7 +718,12 @@ function Phantom.new(opts)
         notifPanel.Visible  = false
         searchPanel.Visible = false
         searchInline.Text   = ""
-        if self._tabs[1] then self._tabs[1]._activate() end
+        -- Find the Settings tab by title so it works regardless of tab order
+        for _, td in ipairs(self._tabs) do
+            if td._btnLbl and td._btnLbl.Text == "Settings" then
+                td._activate(); break
+            end
+        end
     end)
 
     logTopBtn.MouseButton1Click:Connect(function()
@@ -1232,7 +1237,7 @@ function Phantom:NewTab(opts)
                 end
                 if fire and topts.Callback then topts.Callback(v) end
             end
-            cfgReg(topts.Title or "Toggle", state, function(v) set(v, false) end)
+            cfgReg(topts.Title or "Toggle", state, function(v) set(v, true) end)
             if state then set(true, false) end
 
             local hit = Instance.new("TextButton")
@@ -1298,7 +1303,7 @@ function Phantom:NewTab(opts)
                 hub._cfgState[tabTitle .. ">" .. secTitle .. ">" .. (sopts2.Title or "Slider")] = v
                 if fire and sopts2.Callback then sopts2.Callback(v) end
             end
-            cfgReg(sopts2.Title or "Slider", df, function(v) setVal(v, false) end)
+            cfgReg(sopts2.Title or "Slider", df, function(v) setVal(v, true) end)
             setVal(df, false)
 
             local sliding = false
@@ -1597,8 +1602,11 @@ function Phantom:NewTab(opts)
             stroke(keyBtn, T.Accent, 0.75)
 
             cfgReg(kopts.Title or "Keybind", keyBtn.Text, function(v)
-                local kc = pcall(function() return Enum.KeyCode[v] end)
-                if kc then bound = Enum.KeyCode[v] end
+                local ok, kc = pcall(function() return Enum.KeyCode[v] end)
+                if ok and kc then
+                    bound = kc
+                    if kopts.Callback then kopts.Callback(bound) end
+                end
                 keyBtn.Text = v
             end)
 
@@ -1763,7 +1771,7 @@ function Phantom:NewTab(opts)
                     if type(tbl) == "table" then
                         local c = Color3.fromRGB(tbl.r or 255, tbl.g or 255, tbl.b or 255)
                         h, s, v = Color3.toHSV(c)
-                        updateColor(false)
+                        updateColor(true)  -- fire callback so accent color actually applies
                     end
                 end
             )
@@ -1815,6 +1823,11 @@ function Phantom:NewTab(opts)
 
         return Sec
     end
+
+    -- Expose sidebar button and activate fn on the Tab object so Hub scripts can
+    -- hide the button (e.g. Settings) or force-activate from outside.
+    Tab._btn      = btn
+    Tab._activate = activate
 
     return Tab
 end
